@@ -19,6 +19,7 @@ export interface ToolbarProps {
   onExportFile(): void;
   onImportFile(file: File): void;
   onOpenPlaybook(): void;
+  onHideChrome(): void;
 }
 
 export function Toolbar(props: ToolbarProps) {
@@ -26,7 +27,7 @@ export function Toolbar(props: ToolbarProps) {
     play, rotated, canUndo, busy, screenMode, onToggleScreenMode,
     onRename, onCourtType, onToggleRotate, onUndo,
     onAddPlayer, onAddCone,
-    onExportPNG, onExportVideo, onExportFile, onImportFile, onOpenPlaybook,
+    onExportPNG, onExportVideo, onExportFile, onImportFile, onOpenPlaybook, onHideChrome,
   } = props;
 
   const [menuOpen, setMenuOpen] = useState(false);
@@ -74,6 +75,15 @@ export function Toolbar(props: ToolbarProps) {
           title="되돌리기 (Ctrl+Z)"
         >
           ↺
+        </button>
+
+        <button
+          className="btn btn-ghost btn-icon"
+          onClick={onHideChrome}
+          title="메뉴 숨기기 — 코트만 보기"
+          aria-label="메뉴 숨기기"
+        >
+          ⛶
         </button>
 
         <div className="menu-wrap" ref={menuRef}>

@@ -42,6 +42,37 @@ body {
   overflow: hidden;
 }
 
+/* 메뉴를 숨긴 상태 — 코트가 화면을 다 쓴다 */
+.app.bare {
+  grid-template-rows: minmax(0, 1fr);
+}
+
+/* 숨긴 동안 떠 있는 단 하나의 버튼 */
+.fab-menu {
+  position: fixed;
+  top: max(10px, env(safe-area-inset-top));
+  left: max(10px, env(safe-area-inset-left));
+  z-index: 40;
+  width: 40px;
+  height: 40px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: rgba(28, 32, 38, 0.72);
+  backdrop-filter: blur(6px);
+  color: var(--text);
+  font-size: 17px;
+  line-height: 1;
+  cursor: pointer;
+  /* 코트를 가리지 않게 평소엔 흐리게, 손이 가면 또렷하게 */
+  opacity: 0.45;
+  transition: opacity 0.15s ease;
+}
+
+.fab-menu:hover,
+.fab-menu:focus-visible {
+  opacity: 1;
+}
+
 .toolbar,
 .stage,
 .stepbar {

@@ -74,6 +74,8 @@ export default function App() {
   const [toast, setToast] = useState<string | null>(null);
   const [focusLineId, setFocusLineId] = useState<string | null>(null);
   const [tool, setTool] = useState<BoardTool>('select');
+  /** 메뉴를 숨기고 코트만 남긴 상태 */
+  const [bare, setBare] = useState(false);
 
   const historyRef = useRef<Play[]>([]);
   const dragSnapshot = useRef<Play | null>(null);
@@ -289,6 +291,32 @@ export default function App() {
     },
     [play, lineId, safeIndex, commit, showToast],
   );
+
+  // ---- 메뉴 숨김 ----
+  // 숨길 때 브라우저 전체화면도 같이 요청한다.
+  // iOS 사파리처럼 지원이 없는 곳에서는 조용히 넘어가고 메뉴만 숨는다.
+  const toggleBare = useCallback(() => {
+    setBare((on) => {
+      const next = !on;
+      const root = document.documentElement;
+      if (next) {
+        void root.requestFullscreen?.({ navigationUI: 'hide' }).catch(() => {});
+      } else if (document.fullscreenElement) {
+        void document.exitFullscreen?.().catch(() => {});
+      }
+      return next;
+    });
+    setSelectedId(null);
+  }, []);
+
+  // Esc 등으로 전체화면에서 빠져나오면 메뉴도 같이 돌아온다
+  useEffect(() => {
+    const onChange = () => {
+      if (!document.fullscreenElement) setBare(false);
+    };
+    document.addEventListener('fullscreenchange', onChange);
+    return () => document.removeEventListener('fullscreenchange', onChange);
+  }, []);
 
   const toggleScreenMode = useCallback(() => {
     setTool((t) => (t === 'screen' ? 'select' : 'screen'));
@@ -577,6 +605,8 @@ export default function App() {
       if (e.key === 'Escape') {
         setSelectedId(null);
         setTool('select');
+        // 전체화면이 안 걸린 채로 숨어 있을 때도 Esc 한 번이면 메뉴가 돌아온다
+        if (!document.fullscreenElement) setBare(false);
       }
     };
     window.addEventListener('keydown', onKey);
@@ -584,7 +614,19 @@ export default function App() {
   }, [undo, togglePlay, steps.length, selectedId, removeSelected]);
 
   return (
-    <div className="app">
+    <div className={`app ${bare ? 'bare' : ''}`}>
+      {bare && (
+        <button
+          className="fab-menu"
+          onClick={toggleBare}
+          title="메뉴 보이기 (Esc)"
+          aria-label="메뉴 보이기"
+        >
+          ☰
+        </button>
+      )}
+
+      {!bare && (
       <Toolbar
         play={play}
         rotated={rotated}
@@ -603,7 +645,9 @@ export default function App() {
         onExportFile={() => exportPlayFile(play)}
         onImportFile={onImportFile}
         onOpenPlaybook={() => setShowPlaybook(true)}
+        onHideChrome={toggleBare}
       />
+      )}
 
       <main className="stage">
         <Board
@@ -628,7 +672,7 @@ export default function App() {
           onTrashScreen={onTrashScreen}
         />
 
-        {selectedToken && !isPlaying && (
+        {selectedToken && !isPlaying && !bare && (
           <Inspector
             token={selectedToken}
             stepIndex={safeIndex}
@@ -656,6 +700,7 @@ export default function App() {
         )}
       </main>
 
+      {!bare && (
       <div className="bottom">
         <LineBar
           play={play}
@@ -691,6 +736,7 @@ export default function App() {
           onDuration={(duration) => commit(updateStepAt(play, lineId, safeIndex, { duration }))}
         />
       </div>
+      )}
 
       {showPlaybook && (
         <PlaybookPanel
