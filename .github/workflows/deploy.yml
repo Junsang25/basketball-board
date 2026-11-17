@@ -32,10 +32,8 @@ jobs:
       # build 안에서 tsc -b 가 먼저 돌아서, 타입이 깨지면 배포도 멈춘다
       - run: npm run build
 
+      # 저장소 Settings > Pages 의 Source 가 "GitHub Actions" 여야 한다
       - uses: actions/configure-pages@v5
-        with:
-          # 저장소 설정에서 Pages를 안 켰어도 알아서 켠다
-          enablement: true
 
       - uses: actions/upload-pages-artifact@v3
         with:
