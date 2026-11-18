@@ -2,13 +2,21 @@
 <html lang="ko">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
     <meta
       name="viewport"
       content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
     />
     <meta name="theme-color" content="#14171b" />
     <meta name="description" content="농구 전술판 - 선수와 공의 움직임을 그리고 장면별로 재생합니다" />
+
+    <!-- 홈 화면에 추가하면 앱처럼 열린다 (오프라인 포함) -->
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <link rel="apple-touch-icon" href="./icons/icon-192.png" />
+    <!-- iOS는 아직 manifest의 display를 다 따르지 않아서 이 둘이 더 필요하다 -->
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black" />
+    <meta name="apple-mobile-web-app-title" content="전술판" />
     <title>농구 전술판</title>
   </head>
   <body>
