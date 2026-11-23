@@ -4,6 +4,7 @@ import { makeTransform, outsideCourt } from '../lib/court';
 import type { Frame } from '../lib/frame';
 import type { Play } from '../lib/types';
 import { drawScene, hitTest, hitTestScreen } from '../lib/render';
+import type { BoardLook } from '../lib/look';
 
 export type BoardTool = 'select' | 'screen';
 
@@ -13,6 +14,8 @@ const AIM_RATE = Math.PI / AIM_SPAN_PX;
 
 export interface BoardProps {
   play: Play;
+  /** 코트 디자인과 말 크기 */
+  look: BoardLook;
   frame: Frame;
   rotated: boolean;
   tool: BoardTool;
@@ -57,7 +60,7 @@ interface Aim {
 
 export function Board(props: BoardProps) {
   const {
-    play, frame, rotated, tool, selectedId, handlePos, interactive, showGhosts,
+    play, look, frame, rotated, tool, selectedId, handlePos, interactive, showGhosts,
     onSize, onSelect, onDragToken, onDragHandle, onDragEnd, onEmptyTap,
     onPlaceScreen, onMoveScreen, onAimScreen, onDeleteScreen, onTrashScreen,
   } = props;
@@ -137,11 +140,12 @@ export function Board(props: BoardProps) {
       handlePos: interactive && tool === 'select' ? handlePos : null,
       activeScreenId: screenMode ? aim?.id ?? hoverScreenId : null,
       trashScreenId: screenMode ? trashId : null,
+      look,
     });
     ctx.restore();
   }, [
     play, frame, tf, size, selectedId, handlePos, interactive, showGhosts,
-    tool, hoverScreenId, aim, trashId,
+    tool, hoverScreenId, aim, trashId, look,
   ]);
 
   const localFromClient = useCallback((clientX: number, clientY: number): Vec => {
@@ -220,7 +224,7 @@ export function Board(props: BoardProps) {
       }
 
       // 2) 말
-      const hitId = hitTest(play, frame, tf, local, e.pointerType === 'mouse' ? 4 : 12);
+      const hitId = hitTest(play, frame, tf, local, e.pointerType === 'mouse' ? 4 : 12, look.tokenScale);
       if (hitId) {
         const p = frame.positions[hitId];
         const c = tf.toCanvas(p);
@@ -240,7 +244,7 @@ export function Board(props: BoardProps) {
     },
     [
       interactive, tool, toLocal, selectedId, handlePos, tf, play, frame, aim,
-      onSelect, onEmptyTap, onPlaceScreen, onDragEnd,
+      look.tokenScale, onSelect, onEmptyTap, onPlaceScreen, onDragEnd,
     ],
   );
 

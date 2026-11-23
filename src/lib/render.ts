@@ -1,7 +1,9 @@
 import { BALL_ID } from './types';
 import type { Play, Token, Vec } from './types';
-import { drawCourt, THEME } from './court';
+import { drawCourt } from './court';
 import type { Transform } from './court';
+import { DEFAULT_LOOK } from './look';
+import type { BoardLook } from './look';
 import type { Frame, ScreenMark, Trail, TrailKind } from './frame';
 import { distToSegment, norm, perp, pointAlong, polylineLengths, sub, trimPolyline } from './geom';
 
@@ -9,20 +11,6 @@ import { distToSegment, norm, perp, pointAlong, polylineLengths, sub, trimPolyli
 export const PLAYER_R = 1.9;
 export const BALL_R = 1.05;
 export const CONE_R = 1.3;
-
-export const COLORS = {
-  offense: '#1668d6',
-  offenseText: '#ffffff',
-  defense: '#d4342a',
-  defenseFill: '#fffaf8',
-  ball: '#e0701d',
-  cone: '#d9a318',
-  screen: '#0d3f7a',
-  pass: '#c2560f',
-  select: '#111827',
-  ghost: 'rgba(60, 50, 40, 0.22)',
-  handle: '#0f766e',
-};
 
 export interface RenderOptions {
   /** 선택된 말 id */
@@ -37,12 +25,14 @@ export interface RenderOptions {
   activeScreenId?: string | null;
   /** 코트 밖으로 끌려 나와 지금 손을 떼면 버려지는 마커 */
   trashScreenId?: string | null;
+  /** 테마와 말 크기 */
+  look?: BoardLook;
 }
 
-export function tokenRadius(token: Token): number {
-  if (token.kind === 'ball') return BALL_R;
-  if (token.kind === 'cone') return CONE_R;
-  return PLAYER_R;
+export function tokenRadius(token: Token, scale = 1): number {
+  if (token.kind === 'ball') return BALL_R * scale;
+  if (token.kind === 'cone') return CONE_R * scale;
+  return PLAYER_R * scale;
 }
 
 export function drawScene(
@@ -52,7 +42,8 @@ export function drawScene(
   frame: Frame,
   opts: RenderOptions = {},
 ): void {
-  drawCourt(ctx, tf, play.courtType, THEME);
+  const look = opts.look ?? DEFAULT_LOOK;
+  drawCourt(ctx, tf, play.courtType, look.theme);
 
   // 직전 장면 잔상
   if (opts.ghosts && frame.ghostPositions) {
@@ -62,13 +53,13 @@ export function drawScene(
       const now = frame.positions[token.id];
       if (!p || !now) continue;
       if (Math.hypot(p.x - now.x, p.y - now.y) < 0.6) continue;
-      drawGhost(ctx, tf, p, tokenRadius(token));
+      drawGhost(ctx, tf, p, tokenRadius(token, look.tokenScale), look);
     }
   }
 
   // 움직임 기호 (말보다 아래)
   for (const trail of frame.trails) {
-    drawTrail(ctx, tf, trail, play);
+    drawTrail(ctx, tf, trail, play, look);
   }
 
   // 말
@@ -76,7 +67,7 @@ export function drawScene(
     if (token.kind === 'ball') continue;
     const p = frame.positions[token.id];
     if (!p) continue;
-    drawToken(ctx, tf, token, p, opts.selectedId === token.id);
+    drawToken(ctx, tf, token, p, opts.selectedId === token.id, look);
   }
 
   // 스크린 마커 (말 위에 올린다)
@@ -84,14 +75,14 @@ export function drawScene(
     const mode = opts.trashScreenId === mark.id
       ? 'trash'
       : opts.activeScreenId === mark.id ? 'active' : 'plain';
-    drawScreenMark(ctx, tf, mark, mode);
+    drawScreenMark(ctx, tf, mark, mode, look);
   }
 
   // 공은 항상 맨 위
   const ballPos = frame.positions[BALL_ID];
   if (ballPos) {
     const ball = play.tokens.find((t) => t.id === BALL_ID);
-    if (ball) drawToken(ctx, tf, ball, ballPos, opts.selectedId === BALL_ID);
+    if (ball) drawToken(ctx, tf, ball, ballPos, opts.selectedId === BALL_ID, look);
   }
 
   // 곡선 핸들
@@ -100,21 +91,27 @@ export function drawScene(
     const r = Math.max(5, tf.px(0.85));
     ctx.beginPath();
     ctx.arc(c.x, c.y, r, 0, Math.PI * 2);
-    ctx.fillStyle = '#ffffff';
+    ctx.fillStyle = look.theme.floor;
     ctx.fill();
     ctx.lineWidth = Math.max(1.6, tf.px(0.2));
-    ctx.strokeStyle = COLORS.handle;
+    ctx.strokeStyle = look.theme.handle;
     ctx.stroke();
   }
 }
 
-function drawGhost(ctx: CanvasRenderingContext2D, tf: Transform, pos: Vec, rFeet: number): void {
+function drawGhost(
+  ctx: CanvasRenderingContext2D,
+  tf: Transform,
+  pos: Vec,
+  rFeet: number,
+  look: BoardLook,
+): void {
   const c = tf.toCanvas(pos);
   ctx.beginPath();
   ctx.arc(c.x, c.y, tf.px(rFeet), 0, Math.PI * 2);
   ctx.setLineDash([tf.px(0.4), tf.px(0.4)]);
   ctx.lineWidth = Math.max(1, tf.px(0.16));
-  ctx.strokeStyle = COLORS.ghost;
+  ctx.strokeStyle = look.theme.ghost;
   ctx.stroke();
   ctx.setLineDash([]);
 }
@@ -125,61 +122,60 @@ export function drawToken(
   token: Token,
   pos: Vec,
   selected: boolean,
+  look: BoardLook,
 ): void {
   const c = tf.toCanvas(pos);
+  const k = look.tokenScale;
+  const th = look.theme;
 
   if (token.kind === 'ball') {
-    drawBall(ctx, tf, c);
-    if (selected) drawSelectRing(ctx, tf, c, BALL_R);
+    drawBall(ctx, tf, c, look);
+    if (selected) drawSelectRing(ctx, tf, c, BALL_R * k, look);
     return;
   }
 
   if (token.kind === 'cone') {
-    const r = tf.px(CONE_R);
+    const r = tf.px(CONE_R * k);
     ctx.beginPath();
     ctx.moveTo(c.x, c.y - r);
-    ctx.lineTo(c.x + r * 0.9, c.y + r * 0.7);
-    ctx.lineTo(c.x - r * 0.9, c.y + r * 0.7);
+    ctx.lineTo(c.x + r * 0.88, c.y + r * 0.68);
+    ctx.lineTo(c.x - r * 0.88, c.y + r * 0.68);
     ctx.closePath();
-    ctx.fillStyle = COLORS.cone;
+    ctx.fillStyle = th.cone;
     ctx.fill();
-    ctx.lineWidth = Math.max(1.2, tf.px(0.16));
-    ctx.strokeStyle = 'rgba(0,0,0,0.35)';
-    ctx.stroke();
-    if (selected) drawSelectRing(ctx, tf, c, CONE_R);
+    if (selected) drawSelectRing(ctx, tf, c, CONE_R * k, look);
     return;
   }
 
-  const r = tf.px(PLAYER_R);
+  const r = tf.px(PLAYER_R * k);
   const isOffense = token.team !== 'defense';
-
-  // 그림자
-  ctx.beginPath();
-  ctx.arc(c.x, c.y + r * 0.12, r, 0, Math.PI * 2);
-  ctx.fillStyle = 'rgba(40, 30, 20, 0.14)';
-  ctx.fill();
+  // 테두리는 말 크기를 따라간다. 말을 키웠는데 선만 가늘면 허전해 보인다.
+  const ring = Math.max(1.4, tf.px(0.24 * k));
 
   ctx.beginPath();
   ctx.arc(c.x, c.y, r, 0, Math.PI * 2);
-  if (isOffense) {
-    ctx.fillStyle = COLORS.offense;
+  if (isOffense && th.offenseStyle === 'fill') {
+    ctx.fillStyle = th.offense;
     ctx.fill();
   } else {
-    ctx.fillStyle = COLORS.defenseFill;
+    // 속을 채워야 코트 선이 말을 뚫고 보이지 않는다
+    ctx.fillStyle = th.defenseFill;
     ctx.fill();
-    ctx.lineWidth = Math.max(1.8, tf.px(0.3));
-    ctx.strokeStyle = COLORS.defense;
+    ctx.lineWidth = ring;
+    ctx.strokeStyle = isOffense ? th.offense : th.defense;
     ctx.stroke();
   }
 
-  // 번호
-  ctx.fillStyle = isOffense ? COLORS.offenseText : COLORS.defense;
-  ctx.font = `600 ${Math.round(tf.px(2.2))}px ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif`;
+  // 등번호
+  ctx.fillStyle = isOffense
+    ? th.offenseStyle === 'fill' ? th.offenseText : th.offense
+    : th.defense;
+  ctx.font = `650 ${Math.round(tf.px(2.05 * k))}px ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillText(token.label, c.x, c.y + tf.px(0.08));
+  ctx.fillText(token.label, c.x, c.y + tf.px(0.06 * k));
 
-  if (selected) drawSelectRing(ctx, tf, c, PLAYER_R);
+  if (selected) drawSelectRing(ctx, tf, c, PLAYER_R * k, look);
 }
 
 function drawSelectRing(
@@ -187,39 +183,33 @@ function drawSelectRing(
   tf: Transform,
   c: Vec,
   rFeet: number,
+  look: BoardLook,
 ): void {
   ctx.beginPath();
-  ctx.arc(c.x, c.y, tf.px(rFeet) + Math.max(3, tf.px(0.5)), 0, Math.PI * 2);
-  ctx.lineWidth = Math.max(1.6, tf.px(0.22));
-  ctx.strokeStyle = COLORS.select;
-  ctx.setLineDash([tf.px(0.7), tf.px(0.5)]);
+  ctx.arc(c.x, c.y, tf.px(rFeet) + Math.max(3, tf.px(0.45)), 0, Math.PI * 2);
+  ctx.lineWidth = Math.max(1.4, tf.px(0.18));
+  ctx.strokeStyle = look.theme.select;
+  ctx.setLineDash([tf.px(0.6), tf.px(0.45)]);
   ctx.stroke();
   ctx.setLineDash([]);
 }
 
-function drawBall(ctx: CanvasRenderingContext2D, tf: Transform, c: Vec): void {
-  const r = tf.px(BALL_R);
+function drawBall(ctx: CanvasRenderingContext2D, tf: Transform, c: Vec, look: BoardLook): void {
+  const r = tf.px(BALL_R * look.tokenScale);
   ctx.beginPath();
   ctx.arc(c.x, c.y, r, 0, Math.PI * 2);
-  ctx.fillStyle = COLORS.ball;
+  ctx.fillStyle = look.theme.ball;
   ctx.fill();
-  ctx.lineWidth = Math.max(1, tf.px(0.13));
-  ctx.strokeStyle = 'rgba(70, 30, 0, 0.75)';
-  ctx.stroke();
-
-  // 솔기
-  ctx.beginPath();
-  ctx.moveTo(c.x - r, c.y);
-  ctx.lineTo(c.x + r, c.y);
-  ctx.moveTo(c.x, c.y - r);
-  ctx.lineTo(c.x, c.y + r);
-  ctx.lineWidth = Math.max(0.8, tf.px(0.1));
+  // 코트 색 테두리 — 선수 위에 겹쳐도 공이 따로 보인다
+  ctx.lineWidth = Math.max(1, tf.px(0.14));
+  ctx.strokeStyle = look.theme.floor;
   ctx.stroke();
 }
 
-function trailColor(trail: Trail): string {
-  if (trail.kind === 'pass' || trail.kind === 'shot') return COLORS.pass;
-  return trail.team === 'defense' ? COLORS.defense : COLORS.offense;
+function trailColor(trail: Trail, look: BoardLook): string {
+  const th = look.theme;
+  if (trail.kind === 'pass' || trail.kind === 'shot') return th.pass;
+  return trail.team === 'defense' ? th.defense : th.offense;
 }
 
 export function drawTrail(
@@ -227,15 +217,14 @@ export function drawTrail(
   tf: Transform,
   trail: Trail,
   play: Play,
+  look: BoardLook,
 ): void {
   const token = play.tokens.find((t) => t.id === trail.tokenId);
-  const startTrim = token ? tokenRadius(token) + 0.25 : 1;
-  const endTrim = token ? tokenRadius(token) + 0.35 : 1;
-
-  const pts = trimPolyline(trail.points, startTrim, endTrim);
+  const r = token ? tokenRadius(token, look.tokenScale) : 1;
+  const pts = trimPolyline(trail.points, r + 0.25, r + 0.35);
   if (pts.length < 2) return;
 
-  const color = trailColor(trail);
+  const color = trailColor(trail, look);
   const lw = Math.max(1.8, tf.px(0.26));
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
@@ -315,7 +304,8 @@ export function drawScreenMark(
   ctx: CanvasRenderingContext2D,
   tf: Transform,
   mark: ScreenMark,
-  mode: ScreenMarkMode = 'plain',
+  mode: ScreenMarkMode,
+  look: BoardLook,
 ): void {
   const [p1, p2] = screenEnds(mark.pos, mark.angle);
   const a = tf.toCanvas(p1);
@@ -327,11 +317,11 @@ export function drawScreenMark(
   ctx.globalAlpha = Math.max(0, Math.min(1, mark.opacity)) * (trash ? 0.55 : 1);
   ctx.lineCap = 'round';
 
-  // 코트 위에서도 잘 보이도록 흰 테두리를 먼저 깐다
+  // 코트 색으로 한 겹 깔아서 선과 말 위에 올라가도 막대가 또렷하게 보이게 한다
   ctx.beginPath();
   ctx.moveTo(a.x, a.y);
   ctx.lineTo(b.x, b.y);
-  ctx.strokeStyle = mode === 'active' ? 'rgba(255, 255, 255, 1)' : 'rgba(255, 255, 255, 0.92)';
+  ctx.strokeStyle = look.theme.floor;
   ctx.lineWidth = lw + Math.max(2.5, tf.px(mode === 'active' ? 0.45 : 0.26));
   ctx.stroke();
 
@@ -340,7 +330,7 @@ export function drawScreenMark(
   ctx.moveTo(a.x, a.y);
   ctx.lineTo(b.x, b.y);
   if (trash) ctx.setLineDash([Math.max(3, tf.px(0.5)), Math.max(3, tf.px(0.45))]);
-  ctx.strokeStyle = trash ? COLORS.defense : COLORS.screen;
+  ctx.strokeStyle = trash ? look.theme.defense : look.theme.screen;
   ctx.lineWidth = lw;
   ctx.stroke();
 
@@ -391,6 +381,7 @@ export function hitTest(
   tf: Transform,
   canvasPoint: Vec,
   extraPx = 8,
+  tokenScale = 1,
 ): string | null {
   let best: { id: string; d: number } | null = null;
 
@@ -400,7 +391,7 @@ export function hitTest(
     if (!p) continue;
     const c = tf.toCanvas(p);
     const d = Math.hypot(c.x - canvasPoint.x, c.y - canvasPoint.y);
-    const r = tf.px(tokenRadius(token)) + extraPx;
+    const r = tf.px(tokenRadius(token, tokenScale)) + extraPx;
     if (d <= r && (!best || d < best.d)) best = { id: token.id, d };
   }
   return best ? best.id : null;

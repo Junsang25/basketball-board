@@ -1,4 +1,6 @@
 import type { CourtType, Vec } from './types';
+import type { BoardTheme } from './look';
+import { THEMES } from './look';
 
 /** NBA 규격 (피트) */
 export const COURT = {
@@ -90,29 +92,20 @@ export function hoopPos(courtType: CourtType, far = false): Vec {
   return { x: 0, y: far ? L - COURT.hoopFromBaseline : COURT.hoopFromBaseline };
 }
 
-export interface CourtTheme {
-  floor: string;
-  line: string;
-  lineSoft: string;
-  paint: string;
+/** 선 두께는 테마가 정한다. 너무 얇아져서 사라지지 않게 하한을 둔다. */
+function lineWidth(tf: Transform, theme: BoardTheme, mul = 1): number {
+  return Math.max(1, tf.px(theme.lineFeet * mul));
 }
-
-export const THEME: CourtTheme = {
-  floor: '#f2e6d2',
-  line: '#a08963',
-  lineSoft: '#c9b793',
-  paint: '#e6d5b8',
-};
 
 export function drawCourt(
   ctx: CanvasRenderingContext2D,
   tf: Transform,
   courtType: CourtType,
-  theme: CourtTheme = THEME,
+  theme: BoardTheme = THEMES[0],
 ): void {
   const L = courtLength(courtType);
   const half = COURT.width / 2;
-  const lw = Math.max(1.2, tf.px(0.18));
+  const lw = lineWidth(tf, theme);
 
   const C = (x: number, y: number) => tf.toCanvas({ x, y });
 
@@ -148,7 +141,7 @@ export function drawCourt(
 
   // 외곽선
   ctx.strokeStyle = theme.line;
-  ctx.lineWidth = lw * 1.4;
+  ctx.lineWidth = lineWidth(tf, theme, 1.5);
   const o1 = C(-half, 0);
   const o2 = C(half, 0);
   const o3 = C(half, L);
@@ -166,11 +159,11 @@ function drawHalf(
   ctx: CanvasRenderingContext2D,
   tf: Transform,
   courtType: CourtType,
-  theme: CourtTheme,
+  theme: BoardTheme,
   far: boolean,
 ): void {
   const L = courtLength(courtType);
-  const lw = Math.max(1.2, tf.px(0.18));
+  const lw = lineWidth(tf, theme);
   /** 베이스라인에서의 거리 d -> 코트 y */
   const Y = (d: number) => (far ? L - d : d);
   const C = (x: number, d: number) => tf.toCanvas({ x, y: Y(d) });
@@ -235,7 +228,7 @@ function drawHalf(
 
   // 백보드
   ctx.strokeStyle = theme.line;
-  ctx.lineWidth = Math.max(2, lw * 1.7);
+  ctx.lineWidth = lineWidth(tf, theme, 1.9);
   const bb1 = C(-COURT.backboardWidth / 2, COURT.backboardFromBaseline);
   const bb2 = C(COURT.backboardWidth / 2, COURT.backboardFromBaseline);
   ctx.beginPath();
@@ -244,7 +237,7 @@ function drawHalf(
   ctx.stroke();
 
   // 림
-  strokeCircle(ctx, tf, hoop, COURT.rimRadius, '#d8622a', Math.max(1.6, lw));
+  strokeCircle(ctx, tf, hoop, COURT.rimRadius, theme.rim, lineWidth(tf, theme, 1.3));
 }
 
 function strokeCircle(

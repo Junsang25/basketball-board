@@ -4,6 +4,8 @@ import type { Transform } from './court';
 import { frameAt } from './frame';
 import { orderedLines, resolveSteps } from './play';
 import { drawScene } from './render';
+import { DEFAULT_LOOK } from './look';
+import type { BoardLook } from './look';
 import { downloadBlob, safeFileName } from './storage';
 
 export interface ExportLayout {
@@ -167,13 +169,14 @@ interface RenderArgs {
   t: number;
   withCaption: boolean;
   lineName: string | null;
+  look: BoardLook;
 }
 
 function renderTo(ctx: CanvasRenderingContext2D, layout: ExportLayout, args: RenderArgs): void {
-  ctx.fillStyle = '#ffffff';
+  ctx.fillStyle = args.look.theme.page;
   ctx.fillRect(0, 0, layout.width, layout.height);
   const frame = frameAt(args.play, args.steps, args.stepIndex, args.t, true);
-  drawScene(ctx, layout.tf, args.play, frame, { ghosts: args.t >= 0.999 });
+  drawScene(ctx, layout.tf, args.play, frame, { ghosts: args.t >= 0.999, look: args.look });
   if (args.withCaption) {
     drawCaption(ctx, layout, args.steps, args.stepIndex, args.play.name, args.lineName);
   }
@@ -211,6 +214,7 @@ export async function exportPNG(
   rotated: boolean,
   lineName: string | null,
   withCaption = true,
+  look: BoardLook = DEFAULT_LOOK,
 ): Promise<void> {
   const layout = exportLayout(play.courtType, rotated, 1400, withCaption);
   const canvas = document.createElement('canvas');
@@ -219,7 +223,7 @@ export async function exportPNG(
   const ctx = canvas.getContext('2d');
   if (!ctx) throw new Error('캔버스를 만들 수 없어요.');
 
-  renderTo(ctx, layout, { play, steps, stepIndex, t: 1, withCaption, lineName });
+  renderTo(ctx, layout, { play, steps, stepIndex, t: 1, withCaption, lineName, look });
 
   const blob = await new Promise<Blob | null>((res) => canvas.toBlob(res, 'image/png'));
   if (!blob) throw new Error('이미지를 만들지 못했어요.');
@@ -332,6 +336,7 @@ export interface VideoExportOptions {
   withCaption?: boolean;
   /** 각 장면에서 멈추는 시간 */
   holdMs?: number;
+  look?: BoardLook;
   onProgress?: (ratio: number) => void;
 }
 
@@ -345,6 +350,7 @@ export async function exportVideo(play: Play, opts: VideoExportOptions): Promise
   if (!mime) throw new Error('이 브라우저는 영상 저장을 지원하지 않아요. Chrome이나 Edge에서 시도해 주세요.');
 
   const withCaption = opts.withCaption ?? true;
+  const look = opts.look ?? DEFAULT_LOOK;
   const layout = exportLayout(play.courtType, opts.rotated, 1080, withCaption);
 
   const canvas = document.createElement('canvas');
@@ -369,6 +375,7 @@ export async function exportVideo(play: Play, opts: VideoExportOptions): Promise
       stepIndex: cue.stepIndex,
       t: cue.kind === 'hold' ? 1 : localT,
       withCaption,
+      look,
       lineName: sec.isRoot ? null : sec.name,
     });
   };

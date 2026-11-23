@@ -18,6 +18,7 @@ export interface ToolPanelProps {
   onExportFile(): void;
   onImportFile(file: File): void;
   onOpenPlaybook(): void;
+  onOpenSettings(): void;
   onHideChrome(): void;
 }
 
@@ -26,7 +27,7 @@ export function ToolPanel(props: ToolPanelProps) {
   const {
     play, rotated, canUndo, busy, screenMode, onToggleScreenMode,
     onCourtType, onToggleRotate, onUndo, onAddPlayer, onAddCone,
-    onExportPNG, onExportVideo, onExportFile, onImportFile, onOpenPlaybook, onHideChrome,
+    onExportPNG, onExportVideo, onExportFile, onImportFile, onOpenPlaybook, onOpenSettings, onHideChrome,
   } = props;
 
   const [menuOpen, setMenuOpen] = useState(false);
@@ -91,7 +92,9 @@ export function ToolPanel(props: ToolPanelProps) {
             풀코트
           </button>
         </div>
-        <div className="spacer" />
+      </div>
+
+      <div className="tool-row">
         <button
           className="icon-btn"
           onClick={onToggleRotate}
@@ -108,6 +111,14 @@ export function ToolPanel(props: ToolPanelProps) {
           aria-label="되돌리기"
         >
           ↺
+        </button>
+        <button
+          className="icon-btn"
+          onClick={onHideChrome}
+          title="코트만 보기 — 레일을 모두 접고 전체화면"
+          aria-label="코트만 보기"
+        >
+          ⛶
         </button>
       </div>
 
@@ -127,15 +138,8 @@ export function ToolPanel(props: ToolPanelProps) {
             {busy ?? '내보내기'}
           </button>
 
-          <div className="spacer" />
-
-          <button
-            className="icon-btn"
-            onClick={onHideChrome}
-            title="코트만 보기 — 판을 모두 닫고 전체화면"
-            aria-label="코트만 보기"
-          >
-            ⛶
+          <button className="chip" onClick={onOpenSettings} title="코트 디자인과 말 크기">
+            설정
           </button>
         </div>
 

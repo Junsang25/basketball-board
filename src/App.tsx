@@ -17,7 +17,7 @@ import {
   savePlaybook, upsertPlay,
 } from './lib/storage';
 import { createSamplePlay } from './lib/sample';
-import { loadUi, saveUi } from './lib/uiState';
+import { loadUi, lookFrom, saveUi } from './lib/uiState';
 import type { UiState } from './lib/uiState';
 import { Board } from './ui/Board';
 import type { BoardTool } from './ui/Board';
@@ -27,6 +27,7 @@ import { LineBar } from './ui/LineBar';
 import { StepBar } from './ui/StepBar';
 import { Inspector } from './ui/Inspector';
 import { PlaybookPanel } from './ui/PlaybookPanel';
+import { SettingsPanel } from './ui/SettingsPanel';
 import './styles.css';
 
 /** 새 말을 놓을 후보 자리 (겹치지 않는 곳을 고른다) */
@@ -78,6 +79,7 @@ export default function App() {
   const [boardSize, setBoardSize] = useState({ w: 0, h: 0 });
   const [rotateOverride, setRotateOverride] = useState<boolean | null>(null);
   const [showPlaybook, setShowPlaybook] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [focusLineId, setFocusLineId] = useState<string | null>(null);
@@ -316,16 +318,19 @@ export default function App() {
     return () => window.removeEventListener('resize', onResize);
   }, []);
 
-  const togglePanel = useCallback((key: keyof UiState) => {
+  const togglePanel = useCallback((key: 'tools' | 'scenes') => {
     setUi((u) => ({ ...u, [key]: !u[key] }));
   }, []);
 
-  const showChrome = useCallback(() => setUi({ tools: true, scenes: true }), []);
+  /** 코트 디자인과 말 크기 — 화면·PNG·영상이 같이 쓴다 */
+  const look = useMemo(() => lookFrom(ui), [ui]);
+
+  const showChrome = useCallback(() => setUi((u) => ({ ...u, tools: true, scenes: true })), []);
 
   // 코트만 보기 — 레일을 모두 접고 브라우저 전체화면까지 요청한다.
   // iOS 사파리처럼 전체화면 지원이 없는 곳에서는 조용히 넘어가고 레일만 접힌다.
   const hideChrome = useCallback(() => {
-    setUi({ tools: false, scenes: false });
+    setUi((u) => ({ ...u, tools: false, scenes: false }));
     setSelectedId(null);
     void document.documentElement.requestFullscreen?.({ navigationUI: 'hide' }).catch(() => {});
   }, []);
@@ -582,14 +587,14 @@ export default function App() {
   const doExportPNG = useCallback(async () => {
     setBusy('이미지 만드는 중…');
     try {
-      await exportPNG(play, steps, safeIndex, rotated, line.parentId ? line.name : null, true);
+      await exportPNG(play, steps, safeIndex, rotated, line.parentId ? line.name : null, true, look);
       showToast('이미지를 저장했어요');
     } catch (err) {
       showToast(err instanceof Error ? err.message : '이미지 저장에 실패했어요');
     } finally {
       setBusy(null);
     }
-  }, [play, steps, safeIndex, rotated, line, showToast]);
+  }, [play, steps, safeIndex, rotated, line, showToast, look]);
 
   const doExportVideo = useCallback(async () => {
     if (steps.length < 2) {
@@ -604,6 +609,7 @@ export default function App() {
     setBusy('영상 0%');
     try {
       await exportVideo(play, {
+        look,
         rotated,
         withCaption: true,
         holdMs: 900,
@@ -619,7 +625,7 @@ export default function App() {
     } finally {
       setBusy(null);
     }
-  }, [play, steps, rotated, showToast]);
+  }, [play, steps, rotated, showToast, look]);
 
   // ---- 키보드 ----
   useEffect(() => {
@@ -700,6 +706,7 @@ export default function App() {
           onExportFile={() => exportPlayFile(play)}
           onImportFile={onImportFile}
           onOpenPlaybook={() => setShowPlaybook(true)}
+          onOpenSettings={() => setShowSettings(true)}
           onHideChrome={hideChrome}
         />
       </Panel>
@@ -707,6 +714,7 @@ export default function App() {
       <main className="stage">
         <Board
           play={play}
+          look={look}
           frame={frame}
           rotated={rotated}
           tool={tool}
@@ -809,6 +817,16 @@ export default function App() {
           onExportAll={() => exportPlaybookFile(plays)}
           onLoadSample={loadSample}
           onClose={() => setShowPlaybook(false)}
+        />
+      )}
+
+      {showSettings && (
+        <SettingsPanel
+          themeId={ui.themeId}
+          tokenScale={ui.tokenScale}
+          onTheme={(themeId) => setUi((u) => ({ ...u, themeId }))}
+          onTokenScale={(tokenScale) => setUi((u) => ({ ...u, tokenScale }))}
+          onClose={() => setShowSettings(false)}
         />
       )}
 
