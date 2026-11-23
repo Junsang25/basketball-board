@@ -1,42 +1,28 @@
-import type { PanelPos } from '../ui/Panel';
-
-export interface PanelState {
-  open: boolean;
-  /** 옮긴 적이 없으면 null (기본 자리) */
-  pos: PanelPos | null;
-}
-
 export interface UiState {
-  tools: PanelState;
-  scenes: PanelState;
+  /** 도구 레일을 펼쳐 뒀는가 */
+  tools: boolean;
+  /** 장면 레일을 펼쳐 뒀는가 */
+  scenes: boolean;
 }
 
 const KEY = 'hoopboard.ui.v1';
 
-export const DEFAULT_UI: UiState = {
-  tools: { open: true, pos: null },
-  scenes: { open: true, pos: null },
-};
+export const DEFAULT_UI: UiState = { tools: true, scenes: true };
 
-function readPanel(raw: unknown, fallback: PanelState): PanelState {
-  if (!raw || typeof raw !== 'object') return fallback;
-  const o = raw as Record<string, unknown>;
-  const p = o.pos as Record<string, unknown> | null | undefined;
-  const pos =
-    p && typeof p.x === 'number' && typeof p.y === 'number' ? { x: p.x, y: p.y } : null;
-  return { open: o.open !== false, pos };
+/** 예전 판 위치까지 들어 있던 모양도 읽어준다 ({ tools: { open, pos } }) */
+function readOpen(raw: unknown): boolean {
+  if (typeof raw === 'boolean') return raw;
+  if (raw && typeof raw === 'object') return (raw as { open?: unknown }).open !== false;
+  return true;
 }
 
-/** 판을 어디에 뒀고 열어뒀는지 — 전술 데이터와는 따로 저장한다 */
+/** 레일을 펼쳐 뒀는지 — 전술 데이터와는 따로 저장한다 */
 export function loadUi(): UiState {
   try {
     const raw = localStorage.getItem(KEY);
     if (!raw) return DEFAULT_UI;
     const data = JSON.parse(raw) as Record<string, unknown>;
-    return {
-      tools: readPanel(data.tools, DEFAULT_UI.tools),
-      scenes: readPanel(data.scenes, DEFAULT_UI.scenes),
-    };
+    return { tools: readOpen(data.tools), scenes: readOpen(data.scenes) };
   } catch {
     return DEFAULT_UI;
   }

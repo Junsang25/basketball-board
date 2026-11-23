@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { CourtType, MoveStyle, Play, TeamId, Vec } from './lib/types';
 import { BALL_ID } from './lib/types';
-import { clampToCourt, courtLength } from './lib/court';
+import { COURT, clampToCourt, courtLength } from './lib/court';
 import { dist } from './lib/geom';
 import { frameAt } from './lib/frame';
 import {
@@ -18,7 +18,7 @@ import {
 } from './lib/storage';
 import { createSamplePlay } from './lib/sample';
 import { loadUi, saveUi } from './lib/uiState';
-import type { PanelState, UiState } from './lib/uiState';
+import type { UiState } from './lib/uiState';
 import { Board } from './ui/Board';
 import type { BoardTool } from './ui/Board';
 import { ToolPanel } from './ui/ToolPanel';
@@ -57,6 +57,11 @@ function freeSpot(play: Play, taken: Vec[], group: keyof typeof SPOTS): Vec {
   );
 }
 
+/** 세로 레일의 폭, 가로 레일의 높이 — 어느 배치가 나은지 가늠하는 데 쓴다 */
+const RAIL_W = 248;
+const RAIL_H_TOOLS = 150;
+const RAIL_H_SCENES = 190;
+
 export default function App() {
   const [plays, setPlays] = useState<Play[]>(ensurePlaybook);
   const [playId, setPlayId] = useState<string>('');
@@ -77,8 +82,12 @@ export default function App() {
   const [toast, setToast] = useState<string | null>(null);
   const [focusLineId, setFocusLineId] = useState<string | null>(null);
   const [tool, setTool] = useState<BoardTool>('select');
-  /** 떠 있는 판을 어디에 뒀고 열어뒀는지 */
+  /** 레일을 펼쳐 뒀는지 */
   const [ui, setUi] = useState<UiState>(loadUi);
+  const [viewport, setViewport] = useState(() => ({
+    w: typeof window === 'undefined' ? 1024 : window.innerWidth,
+    h: typeof window === 'undefined' ? 768 : window.innerHeight,
+  }));
 
   const historyRef = useRef<Play[]>([]);
   const dragSnapshot = useRef<Play | null>(null);
@@ -295,28 +304,33 @@ export default function App() {
     [play, lineId, safeIndex, commit, showToast],
   );
 
-  // ---- 떠 있는 판 ----
+  // ---- 가장자리 레일 ----
   useEffect(() => {
     saveUi(ui);
   }, [ui]);
 
-  const setPanel = useCallback((key: keyof UiState, patch: Partial<PanelState>) => {
-    setUi((u) => ({ ...u, [key]: { ...u[key], ...patch } }));
+  useEffect(() => {
+    const onResize = () => setViewport({ w: window.innerWidth, h: window.innerHeight });
+    onResize();
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
   }, []);
 
-  const showChrome = useCallback(() => {
-    setUi((u) => ({ tools: { ...u.tools, open: true }, scenes: { ...u.scenes, open: true } }));
+  const togglePanel = useCallback((key: keyof UiState) => {
+    setUi((u) => ({ ...u, [key]: !u[key] }));
   }, []);
 
-  // 코트만 보기 — 판을 모두 닫고 브라우저 전체화면까지 요청한다.
-  // iOS 사파리처럼 전체화면 지원이 없는 곳에서는 조용히 넘어가고 판만 닫힌다.
+  const showChrome = useCallback(() => setUi({ tools: true, scenes: true }), []);
+
+  // 코트만 보기 — 레일을 모두 접고 브라우저 전체화면까지 요청한다.
+  // iOS 사파리처럼 전체화면 지원이 없는 곳에서는 조용히 넘어가고 레일만 접힌다.
   const hideChrome = useCallback(() => {
-    setUi((u) => ({ tools: { ...u.tools, open: false }, scenes: { ...u.scenes, open: false } }));
+    setUi({ tools: false, scenes: false });
     setSelectedId(null);
     void document.documentElement.requestFullscreen?.({ navigationUI: 'hide' }).catch(() => {});
   }, []);
 
-  // Esc 등으로 전체화면에서 빠져나오면 판도 같이 돌아온다
+  // Esc 등으로 전체화면에서 빠져나오면 레일도 같이 돌아온다
   useEffect(() => {
     const onChange = () => {
       if (!document.fullscreenElement) showChrome();
@@ -324,6 +338,34 @@ export default function App() {
     document.addEventListener('fullscreenchange', onChange);
     return () => document.removeEventListener('fullscreenchange', onChange);
   }, [showChrome]);
+
+  /*
+   * 레일을 어디에 세울지.
+   *
+   * 코트는 비율이 고정이라 남는 자리가 늘 한쪽 축에만 생긴다. 남는 쪽을 레일에
+   * 내주면 코트는 한 뼘도 작아지지 않는다. 그래서 배치 세 가지를 다 재보고
+   * 코트가 가장 크게 나오는 것을 고른다.
+   *
+   *   side  좌우 세로 레일 — 가로로 긴 창
+   *   stack 위아래 가로 레일 — 세로로 긴 창 (폰)
+   *   mixed 왼쪽 세로 + 아래 가로 — 4:3처럼 어중간한 창
+   */
+  const layout = useMemo(() => {
+    const aspect = rotated
+      ? courtLength(play.courtType) / COURT.width
+      : COURT.width / courtLength(play.courtType);
+    const fit = (w: number, h: number) => Math.max(0, Math.min(w, h * aspect));
+    const side = fit(viewport.w - 2 * RAIL_W, viewport.h);
+    const stack = fit(viewport.w, viewport.h - RAIL_H_TOOLS - RAIL_H_SCENES);
+    const mixed = fit(viewport.w - RAIL_W, viewport.h - RAIL_H_SCENES);
+    const best = Math.max(side, stack, mixed);
+    if (best === side) return 'side';
+    if (best === mixed) return 'mixed';
+    return 'stack';
+  }, [viewport, rotated, play.courtType]);
+
+  const toolsShape = layout === 'stack' ? 'horz' : 'vert';
+  const scenesShape = layout === 'side' ? 'vert' : 'horz';
 
   const toggleScreenMode = useCallback(() => {
     setTool((t) => (t === 'screen' ? 'select' : 'screen'));
@@ -614,7 +656,7 @@ export default function App() {
         setTool('select');
         // 코트만 보던 상태라면 Esc 한 번에 판이 돌아온다.
         // 판 하나만 닫아둔 건 일부러 그런 거니까 건드리지 않는다.
-        if (!document.fullscreenElement && !ui.tools.open && !ui.scenes.open) showChrome();
+        if (!document.fullscreenElement && !ui.tools && !ui.scenes) showChrome();
       }
     };
     window.addEventListener('keydown', onKey);
@@ -622,8 +664,46 @@ export default function App() {
   }, [undo, togglePlay, steps.length, selectedId, removeSelected, ui, showChrome]);
 
   return (
-    <div className="app">
-      {/* 코트가 화면 전체를 쓴다. 조작부는 그 위에 떠 있다. */}
+    <div className={`app layout-${layout}`}>
+      <Panel
+        id="tools"
+        title="도구"
+        icon="☰"
+        shape={toolsShape}
+        open={ui.tools}
+        onToggle={() => togglePanel('tools')}
+      >
+        <input
+          className="name-input"
+          value={play.name}
+          onChange={(e) =>
+            setPlays((ps) => upsertPlay(ps, { ...play, name: e.target.value, updatedAt: Date.now() }))
+          }
+          placeholder="전술 이름"
+          aria-label="전술 이름"
+        />
+
+        <ToolPanel
+          play={play}
+          rotated={rotated}
+          canUndo={canUndo}
+          busy={busy}
+          screenMode={tool === 'screen'}
+          onToggleScreenMode={toggleScreenMode}
+          onCourtType={onCourtType}
+          onToggleRotate={() => setRotateOverride(!rotated)}
+          onUndo={undo}
+          onAddPlayer={addPlayer}
+          onAddCone={addCone}
+          onExportPNG={doExportPNG}
+          onExportVideo={doExportVideo}
+          onExportFile={() => exportPlayFile(play)}
+          onImportFile={onImportFile}
+          onOpenPlaybook={() => setShowPlaybook(true)}
+          onHideChrome={hideChrome}
+        />
+      </Panel>
+
       <main className="stage">
         <Board
           play={play}
@@ -646,143 +726,77 @@ export default function App() {
           onDeleteScreen={onDeleteScreen}
           onTrashScreen={onTrashScreen}
         />
+
+        {selectedToken && !isPlaying && (
+          <Inspector
+            token={selectedToken}
+            stepIndex={safeIndex}
+            moved={selectedMoved}
+            moveStyle={effectiveMoveStyle(steps, safeIndex, selectedToken.id)}
+            hasWaypoint={!!step?.paths[selectedToken.id]?.length}
+            isBallHolder={step?.ballHolder === selectedToken.id}
+            onRelabel={(label) =>
+              commit({
+                ...play,
+                tokens: play.tokens.map((t) => (t.id === selectedToken.id ? { ...t, label } : t)),
+              })
+            }
+            onGiveBall={giveBall}
+            onDropBall={dropBall}
+            onMoveStyle={(s: MoveStyle) =>
+              commit(setMoveStyleAt(play, lineId, safeIndex, selectedToken.id, s))
+            }
+            onClearWaypoint={() =>
+              commit(setWaypointAt(play, lineId, safeIndex, selectedToken.id, null))
+            }
+            onRemove={removeSelected}
+            onClose={() => setSelectedId(null)}
+          />
+        )}
       </main>
 
-      {selectedToken && !isPlaying && (
-        <Inspector
-          token={selectedToken}
+      <Panel
+        id="scenes"
+        title="장면"
+        icon="▤"
+        shape={scenesShape}
+        open={ui.scenes}
+        onToggle={() => togglePanel('scenes')}
+      >
+        <LineBar
+          play={play}
+          currentLineId={lineId}
           stepIndex={safeIndex}
-          moved={selectedMoved}
-          moveStyle={effectiveMoveStyle(steps, safeIndex, selectedToken.id)}
-          hasWaypoint={!!step?.paths[selectedToken.id]?.length}
-          isBallHolder={step?.ballHolder === selectedToken.id}
-          onRelabel={(label) =>
-            commit({
-              ...play,
-              tokens: play.tokens.map((t) => (t.id === selectedToken.id ? { ...t, label } : t)),
-            })
-          }
-          onGiveBall={giveBall}
-          onDropBall={dropBall}
-          onMoveStyle={(s: MoveStyle) =>
-            commit(setMoveStyleAt(play, lineId, safeIndex, selectedToken.id, s))
-          }
-          onClearWaypoint={() =>
-            commit(setWaypointAt(play, lineId, safeIndex, selectedToken.id, null))
-          }
-          onRemove={removeSelected}
-          onClose={() => setSelectedId(null)}
+          focusLineId={focusLineId}
+          onSelect={onSelectLine}
+          onAddBranch={onAddBranch}
+          onRename={(id, name) => {
+            commit(renameLine(play, id, name));
+            setFocusLineId(null);
+          }}
+          onRemove={onRemoveLine}
         />
-      )}
 
-      {ui.tools.open && (
-        <Panel
-          id="tools"
-          title="도구판"
-          pos={ui.tools.pos}
-          onMove={(pos) => setPanel('tools', { pos })}
-          onClose={() => setPanel('tools', { open: false })}
-        >
-          <input
-            className="name-input"
-            value={play.name}
-            onChange={(e) =>
-              setPlays((ps) => upsertPlay(ps, { ...play, name: e.target.value, updatedAt: Date.now() }))
-            }
-            placeholder="전술 이름"
-            aria-label="전술 이름"
-          />
-
-          <ToolPanel
-            play={play}
-            rotated={rotated}
-            canUndo={canUndo}
-            busy={busy}
-            screenMode={tool === 'screen'}
-            onToggleScreenMode={toggleScreenMode}
-            onCourtType={onCourtType}
-            onToggleRotate={() => setRotateOverride(!rotated)}
-            onUndo={undo}
-            onAddPlayer={addPlayer}
-            onAddCone={addCone}
-            onExportPNG={doExportPNG}
-            onExportVideo={doExportVideo}
-            onExportFile={() => exportPlayFile(play)}
-            onImportFile={onImportFile}
-            onOpenPlaybook={() => setShowPlaybook(true)}
-            onHideChrome={hideChrome}
-          />
-        </Panel>
-      )}
-
-      {ui.scenes.open && (
-        <Panel
-          id="scenes"
-          title="장면판"
-          pos={ui.scenes.pos}
-          onMove={(pos) => setPanel('scenes', { pos })}
-          onClose={() => setPanel('scenes', { open: false })}
-        >
-          <LineBar
-            play={play}
-            currentLineId={lineId}
-            stepIndex={safeIndex}
-            focusLineId={focusLineId}
-            onSelect={onSelectLine}
-            onAddBranch={onAddBranch}
-            onRename={(id, name) => {
-              commit(renameLine(play, id, name));
-              setFocusLineId(null);
-            }}
-            onRemove={onRemoveLine}
-          />
-
-          <StepBar
-            steps={steps}
-            stepIndex={safeIndex}
-            sharedCount={shared}
-            isPlaying={isPlaying}
-            progress={progress}
-            onSelectStep={(i) => {
-              setIsPlaying(false);
-              setStepIndex(i);
-            }}
-            onAddStep={onAddStep}
-            onDuplicateStep={onDuplicateStep}
-            onRemoveStep={onRemoveStep}
-            onTogglePlay={togglePlay}
-            onNote={(note) =>
-              setPlays((ps) => upsertPlay(ps, updateStepAt(play, lineId, safeIndex, { note })))
-            }
-            onDuration={(duration) => commit(updateStepAt(play, lineId, safeIndex, { duration }))}
-          />
-        </Panel>
-      )}
-
-      {/* 닫아둔 판은 있던 자리에 작은 버튼으로 남는다 */}
-      {!ui.tools.open && (
-        <button
-          className={`dock-btn dock-tools ${ui.tools.pos ? 'moved' : ''}`}
-          style={ui.tools.pos ? { left: ui.tools.pos.x, top: ui.tools.pos.y } : undefined}
-          onClick={() => setPanel('tools', { open: true })}
-          title="도구판 열기"
-          aria-label="도구판 열기"
-        >
-          ☰
-        </button>
-      )}
-
-      {!ui.scenes.open && (
-        <button
-          className={`dock-btn dock-scenes ${ui.scenes.pos ? 'moved' : ''}`}
-          style={ui.scenes.pos ? { left: ui.scenes.pos.x, top: ui.scenes.pos.y } : undefined}
-          onClick={() => setPanel('scenes', { open: true })}
-          title="장면판 열기"
-          aria-label="장면판 열기"
-        >
-          ▤
-        </button>
-      )}
+        <StepBar
+          steps={steps}
+          stepIndex={safeIndex}
+          sharedCount={shared}
+          isPlaying={isPlaying}
+          progress={progress}
+          onSelectStep={(i) => {
+            setIsPlaying(false);
+            setStepIndex(i);
+          }}
+          onAddStep={onAddStep}
+          onDuplicateStep={onDuplicateStep}
+          onRemoveStep={onRemoveStep}
+          onTogglePlay={togglePlay}
+          onNote={(note) =>
+            setPlays((ps) => upsertPlay(ps, updateStepAt(play, lineId, safeIndex, { note })))
+          }
+          onDuration={(duration) => commit(updateStepAt(play, lineId, safeIndex, { duration }))}
+        />
+      </Panel>
 
       {showPlaybook && (
         <PlaybookPanel

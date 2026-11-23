@@ -1,100 +1,52 @@
-import { useCallback, useEffect, useRef, type PointerEvent as RPointerEvent, type ReactNode } from 'react';
-
-export interface PanelPos {
-  x: number;
-  y: number;
-}
+import type { ReactNode } from 'react';
 
 export interface PanelProps {
-  /** 기본 자리를 CSS에서 잡는 데 쓴다 (panel-tools, panel-scenes) */
+  /** 어느 레일인지 (panel-tools, panel-scenes) */
   id: string;
-  /** 닫기 버튼 설명에 쓰는 이름 */
   title: string;
-  /** 머리말에 title 대신 넣을 것 (예: 전술 이름 입력칸) */
-  titleNode?: ReactNode;
-  /** 옮긴 적이 없으면 null — 기본 자리에 둔다 */
-  pos: PanelPos | null;
-  onMove(pos: PanelPos): void;
-  onClose(): void;
+  /** 접힌 상태에서 띠에 보일 글자 */
+  icon: string;
+  /** 세로로 선 레일인지 가로로 누운 레일인지 */
+  shape: 'vert' | 'horz';
+  open: boolean;
+  onToggle(): void;
   children: ReactNode;
 }
 
-/** 화면 가장자리에서 이만큼은 남긴다 */
-const EDGE = 8;
-
 /**
- * 코트 위에 떠 있는 판. 머리말을 잡고 끌면 움직이고, ✕로 닫는다.
+ * 화면 가장자리에 붙는 레일.
  *
- * 위치는 옮기기 전까지 null이다. 그동안은 CSS가 기본 자리를 잡고,
- * 한 번 끌고 나면 그때부터 좌표로 붙박인다. 판 크기를 재지 않아도 되니까.
+ * 코트는 레일을 뺀 자리에만 그려지기 때문에 둘이 겹칠 일이 없다.
+ * 접으면 얇은 띠만 남고, 그만큼 코트가 쓸 자리가 넓어진다.
  */
-export function Panel({ id, title, titleNode, pos, onMove, onClose, children }: PanelProps) {
-  const ref = useRef<HTMLElement>(null);
-  const drag = useRef<{ dx: number; dy: number; w: number; h: number } | null>(null);
-
-  const clamp = useCallback((x: number, y: number, w: number, h: number): PanelPos => ({
-    x: Math.max(EDGE, Math.min(Math.max(EDGE, window.innerWidth - w - EDGE), x)),
-    y: Math.max(EDGE, Math.min(Math.max(EDGE, window.innerHeight - h - EDGE), y)),
-  }), []);
-
-  const onPointerDown = useCallback((e: RPointerEvent<HTMLElement>) => {
-    // 머리말 안의 버튼·입력칸을 누른 거면 끌지 않는다
-    if ((e.target as HTMLElement).closest('button, input, textarea')) return;
-    const el = ref.current;
-    if (!el) return;
-    const r = el.getBoundingClientRect();
-    drag.current = { dx: e.clientX - r.left, dy: e.clientY - r.top, w: r.width, h: r.height };
-    e.currentTarget.setPointerCapture(e.pointerId);
-    e.preventDefault();
-  }, []);
-
-  const onPointerMove = useCallback(
-    (e: RPointerEvent<HTMLElement>) => {
-      const d = drag.current;
-      if (!d) return;
-      onMove(clamp(e.clientX - d.dx, e.clientY - d.dy, d.w, d.h));
-    },
-    [clamp, onMove],
-  );
-
-  const end = useCallback(() => {
-    drag.current = null;
-  }, []);
-
-  // 창이 작아져서 판이 화면 밖으로 나가면 도로 끌어들인다
-  useEffect(() => {
-    if (!pos) return;
-    const onResize = () => {
-      const el = ref.current;
-      if (!el) return;
-      const r = el.getBoundingClientRect();
-      const next = clamp(pos.x, pos.y, r.width, r.height);
-      if (next.x !== pos.x || next.y !== pos.y) onMove(next);
-    };
-    window.addEventListener('resize', onResize);
-    return () => window.removeEventListener('resize', onResize);
-  }, [pos, clamp, onMove]);
+export function Panel({ id, title, icon, shape, open, onToggle, children }: PanelProps) {
+  if (!open) {
+    return (
+      <button
+        className={`rail rail-shut rail-${id} shape-${shape}`}
+        onClick={onToggle}
+        title={`${title} 펼치기`}
+        aria-label={`${title} 펼치기`}
+      >
+        {icon}
+      </button>
+    );
+  }
 
   return (
-    <section
-      ref={ref}
-      className={`panel panel-${id} ${pos ? 'moved' : ''}`}
-      style={pos ? { left: pos.x, top: pos.y } : undefined}
-    >
-      <header
-        className="panel-head"
-        onPointerDown={onPointerDown}
-        onPointerMove={onPointerMove}
-        onPointerUp={end}
-        onPointerCancel={end}
-      >
-        <span className="panel-grip" aria-hidden="true" />
-        {titleNode ?? <span className="panel-title">{title}</span>}
-        <button className="icon-btn" onClick={onClose} title={`${title} 닫기`} aria-label={`${title} 닫기`}>
-          ✕
+    <section className={`rail rail-${id} shape-${shape}`}>
+      <header className="rail-head">
+        <span className="rail-title">{title}</span>
+        <button
+          className="icon-btn"
+          onClick={onToggle}
+          title={`${title} 접기`}
+          aria-label={`${title} 접기`}
+        >
+          ⤫
         </button>
       </header>
-      <div className="panel-body">{children}</div>
+      <div className="rail-body">{children}</div>
     </section>
   );
 }
