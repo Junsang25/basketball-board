@@ -17,9 +17,12 @@ import {
   savePlaybook, upsertPlay,
 } from './lib/storage';
 import { createSamplePlay } from './lib/sample';
+import { loadUi, saveUi } from './lib/uiState';
+import type { PanelState, UiState } from './lib/uiState';
 import { Board } from './ui/Board';
 import type { BoardTool } from './ui/Board';
-import { Toolbar } from './ui/Toolbar';
+import { ToolPanel } from './ui/ToolPanel';
+import { Panel } from './ui/Panel';
 import { LineBar } from './ui/LineBar';
 import { StepBar } from './ui/StepBar';
 import { Inspector } from './ui/Inspector';
@@ -74,8 +77,8 @@ export default function App() {
   const [toast, setToast] = useState<string | null>(null);
   const [focusLineId, setFocusLineId] = useState<string | null>(null);
   const [tool, setTool] = useState<BoardTool>('select');
-  /** 메뉴를 숨기고 코트만 남긴 상태 */
-  const [bare, setBare] = useState(false);
+  /** 떠 있는 판을 어디에 뒀고 열어뒀는지 */
+  const [ui, setUi] = useState<UiState>(loadUi);
 
   const historyRef = useRef<Play[]>([]);
   const dragSnapshot = useRef<Play | null>(null);
@@ -292,31 +295,35 @@ export default function App() {
     [play, lineId, safeIndex, commit, showToast],
   );
 
-  // ---- 메뉴 숨김 ----
-  // 숨길 때 브라우저 전체화면도 같이 요청한다.
-  // iOS 사파리처럼 지원이 없는 곳에서는 조용히 넘어가고 메뉴만 숨는다.
-  const toggleBare = useCallback(() => {
-    setBare((on) => {
-      const next = !on;
-      const root = document.documentElement;
-      if (next) {
-        void root.requestFullscreen?.({ navigationUI: 'hide' }).catch(() => {});
-      } else if (document.fullscreenElement) {
-        void document.exitFullscreen?.().catch(() => {});
-      }
-      return next;
-    });
-    setSelectedId(null);
+  // ---- 떠 있는 판 ----
+  useEffect(() => {
+    saveUi(ui);
+  }, [ui]);
+
+  const setPanel = useCallback((key: keyof UiState, patch: Partial<PanelState>) => {
+    setUi((u) => ({ ...u, [key]: { ...u[key], ...patch } }));
   }, []);
 
-  // Esc 등으로 전체화면에서 빠져나오면 메뉴도 같이 돌아온다
+  const showChrome = useCallback(() => {
+    setUi((u) => ({ tools: { ...u.tools, open: true }, scenes: { ...u.scenes, open: true } }));
+  }, []);
+
+  // 코트만 보기 — 판을 모두 닫고 브라우저 전체화면까지 요청한다.
+  // iOS 사파리처럼 전체화면 지원이 없는 곳에서는 조용히 넘어가고 판만 닫힌다.
+  const hideChrome = useCallback(() => {
+    setUi((u) => ({ tools: { ...u.tools, open: false }, scenes: { ...u.scenes, open: false } }));
+    setSelectedId(null);
+    void document.documentElement.requestFullscreen?.({ navigationUI: 'hide' }).catch(() => {});
+  }, []);
+
+  // Esc 등으로 전체화면에서 빠져나오면 판도 같이 돌아온다
   useEffect(() => {
     const onChange = () => {
-      if (!document.fullscreenElement) setBare(false);
+      if (!document.fullscreenElement) showChrome();
     };
     document.addEventListener('fullscreenchange', onChange);
     return () => document.removeEventListener('fullscreenchange', onChange);
-  }, []);
+  }, [showChrome]);
 
   const toggleScreenMode = useCallback(() => {
     setTool((t) => (t === 'screen' ? 'select' : 'screen'));
@@ -605,50 +612,18 @@ export default function App() {
       if (e.key === 'Escape') {
         setSelectedId(null);
         setTool('select');
-        // 전체화면이 안 걸린 채로 숨어 있을 때도 Esc 한 번이면 메뉴가 돌아온다
-        if (!document.fullscreenElement) setBare(false);
+        // 코트만 보던 상태라면 Esc 한 번에 판이 돌아온다.
+        // 판 하나만 닫아둔 건 일부러 그런 거니까 건드리지 않는다.
+        if (!document.fullscreenElement && !ui.tools.open && !ui.scenes.open) showChrome();
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [undo, togglePlay, steps.length, selectedId, removeSelected]);
+  }, [undo, togglePlay, steps.length, selectedId, removeSelected, ui, showChrome]);
 
   return (
-    <div className={`app ${bare ? 'bare' : ''}`}>
-      {bare && (
-        <button
-          className="fab-menu"
-          onClick={toggleBare}
-          title="메뉴 보이기 (Esc)"
-          aria-label="메뉴 보이기"
-        >
-          ☰
-        </button>
-      )}
-
-      {!bare && (
-      <Toolbar
-        play={play}
-        rotated={rotated}
-        canUndo={canUndo}
-        busy={busy}
-        screenMode={tool === 'screen'}
-        onToggleScreenMode={toggleScreenMode}
-        onRename={(name) => setPlays((ps) => upsertPlay(ps, { ...play, name, updatedAt: Date.now() }))}
-        onCourtType={onCourtType}
-        onToggleRotate={() => setRotateOverride(!rotated)}
-        onUndo={undo}
-        onAddPlayer={addPlayer}
-        onAddCone={addCone}
-        onExportPNG={doExportPNG}
-        onExportVideo={doExportVideo}
-        onExportFile={() => exportPlayFile(play)}
-        onImportFile={onImportFile}
-        onOpenPlaybook={() => setShowPlaybook(true)}
-        onHideChrome={toggleBare}
-      />
-      )}
-
+    <div className="app">
+      {/* 코트가 화면 전체를 쓴다. 조작부는 그 위에 떠 있다. */}
       <main className="stage">
         <Board
           play={play}
@@ -671,71 +646,142 @@ export default function App() {
           onDeleteScreen={onDeleteScreen}
           onTrashScreen={onTrashScreen}
         />
-
-        {selectedToken && !isPlaying && !bare && (
-          <Inspector
-            token={selectedToken}
-            stepIndex={safeIndex}
-            moved={selectedMoved}
-            moveStyle={effectiveMoveStyle(steps, safeIndex, selectedToken.id)}
-            hasWaypoint={!!step?.paths[selectedToken.id]?.length}
-            isBallHolder={step?.ballHolder === selectedToken.id}
-            onRelabel={(label) =>
-              commit({
-                ...play,
-                tokens: play.tokens.map((t) => (t.id === selectedToken.id ? { ...t, label } : t)),
-              })
-            }
-            onGiveBall={giveBall}
-            onDropBall={dropBall}
-            onMoveStyle={(s: MoveStyle) =>
-              commit(setMoveStyleAt(play, lineId, safeIndex, selectedToken.id, s))
-            }
-            onClearWaypoint={() =>
-              commit(setWaypointAt(play, lineId, safeIndex, selectedToken.id, null))
-            }
-            onRemove={removeSelected}
-            onClose={() => setSelectedId(null)}
-          />
-        )}
       </main>
 
-      {!bare && (
-      <div className="bottom">
-        <LineBar
-          play={play}
-          currentLineId={lineId}
+      {selectedToken && !isPlaying && (
+        <Inspector
+          token={selectedToken}
           stepIndex={safeIndex}
-          focusLineId={focusLineId}
-          onSelect={onSelectLine}
-          onAddBranch={onAddBranch}
-          onRename={(id, name) => {
-            commit(renameLine(play, id, name));
-            setFocusLineId(null);
-          }}
-          onRemove={onRemoveLine}
-        />
-
-        <StepBar
-          steps={steps}
-          stepIndex={safeIndex}
-          sharedCount={shared}
-          isPlaying={isPlaying}
-          progress={progress}
-          onSelectStep={(i) => {
-            setIsPlaying(false);
-            setStepIndex(i);
-          }}
-          onAddStep={onAddStep}
-          onDuplicateStep={onDuplicateStep}
-          onRemoveStep={onRemoveStep}
-          onTogglePlay={togglePlay}
-          onNote={(note) =>
-            setPlays((ps) => upsertPlay(ps, updateStepAt(play, lineId, safeIndex, { note })))
+          moved={selectedMoved}
+          moveStyle={effectiveMoveStyle(steps, safeIndex, selectedToken.id)}
+          hasWaypoint={!!step?.paths[selectedToken.id]?.length}
+          isBallHolder={step?.ballHolder === selectedToken.id}
+          onRelabel={(label) =>
+            commit({
+              ...play,
+              tokens: play.tokens.map((t) => (t.id === selectedToken.id ? { ...t, label } : t)),
+            })
           }
-          onDuration={(duration) => commit(updateStepAt(play, lineId, safeIndex, { duration }))}
+          onGiveBall={giveBall}
+          onDropBall={dropBall}
+          onMoveStyle={(s: MoveStyle) =>
+            commit(setMoveStyleAt(play, lineId, safeIndex, selectedToken.id, s))
+          }
+          onClearWaypoint={() =>
+            commit(setWaypointAt(play, lineId, safeIndex, selectedToken.id, null))
+          }
+          onRemove={removeSelected}
+          onClose={() => setSelectedId(null)}
         />
-      </div>
+      )}
+
+      {ui.tools.open && (
+        <Panel
+          id="tools"
+          title="도구판"
+          pos={ui.tools.pos}
+          onMove={(pos) => setPanel('tools', { pos })}
+          onClose={() => setPanel('tools', { open: false })}
+        >
+          <input
+            className="name-input"
+            value={play.name}
+            onChange={(e) =>
+              setPlays((ps) => upsertPlay(ps, { ...play, name: e.target.value, updatedAt: Date.now() }))
+            }
+            placeholder="전술 이름"
+            aria-label="전술 이름"
+          />
+
+          <ToolPanel
+            play={play}
+            rotated={rotated}
+            canUndo={canUndo}
+            busy={busy}
+            screenMode={tool === 'screen'}
+            onToggleScreenMode={toggleScreenMode}
+            onCourtType={onCourtType}
+            onToggleRotate={() => setRotateOverride(!rotated)}
+            onUndo={undo}
+            onAddPlayer={addPlayer}
+            onAddCone={addCone}
+            onExportPNG={doExportPNG}
+            onExportVideo={doExportVideo}
+            onExportFile={() => exportPlayFile(play)}
+            onImportFile={onImportFile}
+            onOpenPlaybook={() => setShowPlaybook(true)}
+            onHideChrome={hideChrome}
+          />
+        </Panel>
+      )}
+
+      {ui.scenes.open && (
+        <Panel
+          id="scenes"
+          title="장면판"
+          pos={ui.scenes.pos}
+          onMove={(pos) => setPanel('scenes', { pos })}
+          onClose={() => setPanel('scenes', { open: false })}
+        >
+          <LineBar
+            play={play}
+            currentLineId={lineId}
+            stepIndex={safeIndex}
+            focusLineId={focusLineId}
+            onSelect={onSelectLine}
+            onAddBranch={onAddBranch}
+            onRename={(id, name) => {
+              commit(renameLine(play, id, name));
+              setFocusLineId(null);
+            }}
+            onRemove={onRemoveLine}
+          />
+
+          <StepBar
+            steps={steps}
+            stepIndex={safeIndex}
+            sharedCount={shared}
+            isPlaying={isPlaying}
+            progress={progress}
+            onSelectStep={(i) => {
+              setIsPlaying(false);
+              setStepIndex(i);
+            }}
+            onAddStep={onAddStep}
+            onDuplicateStep={onDuplicateStep}
+            onRemoveStep={onRemoveStep}
+            onTogglePlay={togglePlay}
+            onNote={(note) =>
+              setPlays((ps) => upsertPlay(ps, updateStepAt(play, lineId, safeIndex, { note })))
+            }
+            onDuration={(duration) => commit(updateStepAt(play, lineId, safeIndex, { duration }))}
+          />
+        </Panel>
+      )}
+
+      {/* 닫아둔 판은 있던 자리에 작은 버튼으로 남는다 */}
+      {!ui.tools.open && (
+        <button
+          className={`dock-btn dock-tools ${ui.tools.pos ? 'moved' : ''}`}
+          style={ui.tools.pos ? { left: ui.tools.pos.x, top: ui.tools.pos.y } : undefined}
+          onClick={() => setPanel('tools', { open: true })}
+          title="도구판 열기"
+          aria-label="도구판 열기"
+        >
+          ☰
+        </button>
+      )}
+
+      {!ui.scenes.open && (
+        <button
+          className={`dock-btn dock-scenes ${ui.scenes.pos ? 'moved' : ''}`}
+          style={ui.scenes.pos ? { left: ui.scenes.pos.x, top: ui.scenes.pos.y } : undefined}
+          onClick={() => setPanel('scenes', { open: true })}
+          title="장면판 열기"
+          aria-label="장면판 열기"
+        >
+          ▤
+        </button>
       )}
 
       {showPlaybook && (
