@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { CourtType, MoveStyle, Play, TeamId, Vec } from './lib/types';
+import type { CourtType, MoveStyle, Play, Vec } from './lib/types';
 import { BALL_ID } from './lib/types';
-import { COURT, clampToCourt, courtLength } from './lib/court';
+import { clampToCourt, makeTransform } from './lib/court';
 import { dist } from './lib/geom';
 import { frameAt } from './lib/frame';
 import {
-  addBranch, addScreenAt, addStepAt, addToken, ballOffsetFor, canRemoveStep, createPlay,
+  addBranch, addScreenAt, addStepAt, addToken, canRemoveStep, createPlay,
   duplicateStepAt, effectiveMoveStyle, getLine, moveScreenAt, moveTokenAt, nextPlayerLabel,
   removeLine, removeScreenAt, removeStepAt, removeToken, renameLine, resolveSteps, rootLine,
   setScreenAngleAt, setMoveStyleAt, setWaypointAt, sharedCount, uid, updateStepAt,
@@ -20,9 +20,9 @@ import { createSamplePlay } from './lib/sample';
 import { loadUi, lookFrom, saveUi } from './lib/uiState';
 import type { UiState } from './lib/uiState';
 import { Board } from './ui/Board';
-import type { BoardTool } from './ui/Board';
-import { ToolPanel } from './ui/ToolPanel';
-import { Panel } from './ui/Panel';
+import type { BoardTool, PlaceKind } from './ui/Board';
+import { MenuScreen } from './ui/MenuScreen';
+import type { MenuPlace } from './ui/MenuScreen';
 import { LineBar } from './ui/LineBar';
 import { StepBar } from './ui/StepBar';
 import { Inspector } from './ui/Inspector';
@@ -30,38 +30,13 @@ import { PlaybookPanel } from './ui/PlaybookPanel';
 import { SettingsPanel } from './ui/SettingsPanel';
 import './styles.css';
 
-/** 새 말을 놓을 후보 자리 (겹치지 않는 곳을 고른다) */
-const SPOTS: Record<string, Vec[]> = {
-  offense: [
-    { x: 0, y: 38 }, { x: -15, y: 35 }, { x: 15, y: 35 },
-    { x: -22, y: 31 }, { x: 22, y: 31 }, { x: 0, y: 24 },
-  ],
-  defense: [
-    { x: 0, y: 17 }, { x: -7, y: 21 }, { x: 7, y: 21 },
-    { x: -15, y: 18 }, { x: 15, y: 18 }, { x: 0, y: 9 },
-  ],
-  cone: [
-    { x: -21, y: 41 }, { x: 21, y: 41 }, { x: 0, y: 43 },
-    { x: -21, y: 28 }, { x: 21, y: 28 },
-  ],
+/** 말을 놓으려 할 때 코트 위에 띄우는 안내 */
+const PLACE_HINT: Record<Exclude<BoardTool, 'select'>, string> = {
+  offense: '놓을 자리를 터치하세요 · 공격',
+  defense: '놓을 자리를 터치하세요 · 수비',
+  cone: '놓을 자리를 터치하세요 · 콘',
+  screen: '터치해서 놓고, 위아래로 움직여 각도를 맞추세요',
 };
-
-function freeSpot(play: Play, taken: Vec[], group: keyof typeof SPOTS): Vec {
-  for (const spot of SPOTS[group]) {
-    const p = clampToCourt(spot, play.courtType);
-    if (taken.every((t) => dist(t, p) > 3.4)) return p;
-  }
-  const L = courtLength(play.courtType);
-  return clampToCourt(
-    { x: (Math.random() - 0.5) * 40, y: 6 + Math.random() * (L - 12) },
-    play.courtType,
-  );
-}
-
-/** 세로 레일의 폭, 가로 레일의 높이 — 어느 배치가 나은지 가늠하는 데 쓴다 */
-const RAIL_W = 248;
-const RAIL_H_TOOLS = 150;
-const RAIL_H_SCENES = 190;
 
 export default function App() {
   const [plays, setPlays] = useState<Play[]>(ensurePlaybook);
@@ -84,12 +59,9 @@ export default function App() {
   const [toast, setToast] = useState<string | null>(null);
   const [focusLineId, setFocusLineId] = useState<string | null>(null);
   const [tool, setTool] = useState<BoardTool>('select');
-  /** 레일을 펼쳐 뒀는지 */
+  /** 이 기기의 보기 설정 */
   const [ui, setUi] = useState<UiState>(loadUi);
-  const [viewport, setViewport] = useState(() => ({
-    w: typeof window === 'undefined' ? 1024 : window.innerWidth,
-    h: typeof window === 'undefined' ? 768 : window.innerHeight,
-  }));
+  const [menuOpen, setMenuOpen] = useState(false);
 
   const historyRef = useRef<Play[]>([]);
   const dragSnapshot = useRef<Play | null>(null);
@@ -306,129 +278,60 @@ export default function App() {
     [play, lineId, safeIndex, commit, showToast],
   );
 
-  // ---- 가장자리 레일 ----
+  // ---- 보기 설정 ----
   useEffect(() => {
     saveUi(ui);
   }, [ui]);
 
-  useEffect(() => {
-    const onResize = () => setViewport({ w: window.innerWidth, h: window.innerHeight });
-    onResize();
-    window.addEventListener('resize', onResize);
-    return () => window.removeEventListener('resize', onResize);
-  }, []);
-
-  const togglePanel = useCallback((key: 'tools' | 'scenes') => {
-    setUi((u) => ({ ...u, [key]: !u[key] }));
-  }, []);
-
   /** 코트 디자인과 말 크기 — 화면·PNG·영상이 같이 쓴다 */
   const look = useMemo(() => lookFrom(ui), [ui]);
 
-  const showChrome = useCallback(() => setUi((u) => ({ ...u, tools: true, scenes: true })), []);
-
-  // 코트만 보기 — 레일을 모두 접고 브라우저 전체화면까지 요청한다.
-  // iOS 사파리처럼 전체화면 지원이 없는 곳에서는 조용히 넘어가고 레일만 접힌다.
-  const hideChrome = useCallback(() => {
-    setUi((u) => ({ ...u, tools: false, scenes: false }));
-    setSelectedId(null);
-    void document.documentElement.requestFullscreen?.({ navigationUI: 'hide' }).catch(() => {});
+  const toggleFullscreen = useCallback(() => {
+    if (document.fullscreenElement) {
+      void document.exitFullscreen().catch(() => {});
+    } else {
+      // iOS 사파리처럼 지원이 없는 곳에서는 조용히 넘어간다
+      void document.documentElement.requestFullscreen?.({ navigationUI: 'hide' }).catch(() => {});
+    }
+    setMenuOpen(false);
   }, []);
 
-  // Esc 등으로 전체화면에서 빠져나오면 레일도 같이 돌아온다
-  useEffect(() => {
-    const onChange = () => {
-      if (!document.fullscreenElement) showChrome();
-    };
-    document.addEventListener('fullscreenchange', onChange);
-    return () => document.removeEventListener('fullscreenchange', onChange);
-  }, [showChrome]);
-
-  /*
-   * 레일을 어디에 세울지.
-   *
-   * 코트는 비율이 고정이라 남는 자리가 늘 한쪽 축에만 생긴다. 남는 쪽을 레일에
-   * 내주면 코트는 한 뼘도 작아지지 않는다. 그래서 배치 세 가지를 다 재보고
-   * 코트가 가장 크게 나오는 것을 고른다.
-   *
-   *   side  좌우 세로 레일 — 가로로 긴 창
-   *   stack 위아래 가로 레일 — 세로로 긴 창 (폰)
-   *   mixed 왼쪽 세로 + 아래 가로 — 4:3처럼 어중간한 창
-   */
-  const layout = useMemo(() => {
-    const aspect = rotated
-      ? courtLength(play.courtType) / COURT.width
-      : COURT.width / courtLength(play.courtType);
-    const fit = (w: number, h: number) => Math.max(0, Math.min(w, h * aspect));
-    const side = fit(viewport.w - 2 * RAIL_W, viewport.h);
-    const stack = fit(viewport.w, viewport.h - RAIL_H_TOOLS - RAIL_H_SCENES);
-    const mixed = fit(viewport.w - RAIL_W, viewport.h - RAIL_H_SCENES);
-    const best = Math.max(side, stack, mixed);
-    if (best === side) return 'side';
-    if (best === mixed) return 'mixed';
-    return 'stack';
-  }, [viewport, rotated, play.courtType]);
-
-  const toolsShape = layout === 'stack' ? 'horz' : 'vert';
-  const scenesShape = layout === 'side' ? 'vert' : 'horz';
-
-  const toggleScreenMode = useCallback(() => {
-    setTool((t) => (t === 'screen' ? 'select' : 'screen'));
+  /** 메뉴에서 말·스크린을 고르면 메뉴를 닫고, 다음 터치가 코트에 놓인다 */
+  const startPlacing = useCallback((kind: MenuPlace) => {
+    setTool(kind);
     setSelectedId(null);
     setIsPlaying(false);
+    setMenuOpen(false);
   }, []);
 
-  // ---- 말 추가/삭제 ----
-  const addPlayer = useCallback(
-    (team: TeamId) => {
-      const pos = freeSpot(play, Object.values(step?.positions ?? {}), team);
-      const { play: next, tokenId } = addToken(
-        play,
-        { kind: 'player', team, label: nextPlayerLabel(play, team) },
-        pos,
-      );
+  /** 구석 버튼: 재생 중이면 멈춤, 놓는 중이면 취소, 아니면 메뉴 */
+  const onCorner = useCallback(() => {
+    if (isPlaying) setIsPlaying(false);
+    else if (tool !== 'select') setTool('select');
+    else setMenuOpen(true);
+  }, [isPlaying, tool]);
+
+  // ---- 말 놓기/삭제 ----
+  const onPlaceToken = useCallback(
+    (kind: PlaceKind, raw: Vec) => {
+      const pos = clampToCourt(raw, play.courtType);
+      const token =
+        kind === 'cone'
+          ? ({ kind: 'cone', label: '' } as const)
+          : ({ kind: 'player', team: kind, label: nextPlayerLabel(play, kind) } as const);
+      const { play: next, tokenId } = addToken(play, token, pos);
       commit(next);
       setSelectedId(tokenId);
+      setTool('select');
     },
-    [play, step, commit],
+    [play, commit],
   );
-
-  const addCone = useCallback(() => {
-    const pos = freeSpot(play, Object.values(step?.positions ?? {}), 'cone');
-    const { play: next, tokenId } = addToken(play, { kind: 'cone', label: '' }, pos);
-    commit(next);
-    setSelectedId(tokenId);
-  }, [play, step, commit]);
 
   const removeSelected = useCallback(() => {
     if (!selectedId || selectedId === BALL_ID) return;
     commit(removeToken(play, selectedId));
     setSelectedId(null);
   }, [selectedId, play, commit]);
-
-  // ---- 공 ----
-  const giveBall = useCallback(() => {
-    if (!selectedId) return;
-    commit(updateStepAt(play, lineId, safeIndex, { ballHolder: selectedId }));
-  }, [selectedId, play, lineId, safeIndex, commit]);
-
-  const dropBall = useCallback(() => {
-    if (!step?.ballHolder) return;
-    const holderPos = step.positions[step.ballHolder];
-    const off = ballOffsetFor(holderPos);
-    commit(
-      updateStepAt(play, lineId, safeIndex, {
-        ballHolder: null,
-        positions: {
-          ...step.positions,
-          [BALL_ID]: clampToCourt(
-            { x: holderPos.x + off.x, y: holderPos.y + off.y },
-            play.courtType,
-          ),
-        },
-      }),
-    );
-  }, [step, play, lineId, safeIndex, commit]);
 
   // ---- 장면 ----
   const onAddStep = useCallback(() => {
@@ -517,6 +420,7 @@ export default function App() {
     setPlays((ps) => [p, ...ps]);
     setPlayId(p.id);
     setShowPlaybook(false);
+    setMenuOpen(false);
     resetView();
   }, [play.courtType, resetView]);
 
@@ -525,6 +429,7 @@ export default function App() {
     setPlays((ps) => [sample, ...ps]);
     setPlayId(sample.id);
     setShowPlaybook(false);
+    setMenuOpen(false);
     resetView();
   }, [resetView]);
 
@@ -532,6 +437,7 @@ export default function App() {
     (id: string) => {
       setPlayId(id);
       setShowPlaybook(false);
+      setMenuOpen(false);
       resetView();
     },
     [resetView],
@@ -550,6 +456,7 @@ export default function App() {
       setPlays((ps) => [copy, ...ps]);
       setPlayId(copy.id);
       setShowPlaybook(false);
+      setMenuOpen(false);
       resetView();
     },
     [plays, resetView],
@@ -633,6 +540,12 @@ export default function App() {
       const el = e.target as HTMLElement | null;
       if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA')) return;
 
+      // 메뉴가 열려 있을 땐 Esc만 받는다 (스페이스가 버튼을 또 누르지 않게)
+      if (menuOpen) {
+        if (e.key === 'Escape') setMenuOpen(false);
+        return;
+      }
+
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
         e.preventDefault();
         undo();
@@ -660,57 +573,25 @@ export default function App() {
       if (e.key === 'Escape') {
         setSelectedId(null);
         setTool('select');
-        // 코트만 보던 상태라면 Esc 한 번에 판이 돌아온다.
-        // 판 하나만 닫아둔 건 일부러 그런 거니까 건드리지 않는다.
-        if (!document.fullscreenElement && !ui.tools && !ui.scenes) showChrome();
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [undo, togglePlay, steps.length, selectedId, removeSelected, ui, showChrome]);
+  }, [undo, togglePlay, steps.length, selectedId, removeSelected, menuOpen]);
+
+  // 눌러 둔 말 옆에 띄우되, 말을 가리지 않게 먼 쪽 가장자리에 붙인다
+  const inspectorDock = useMemo<'top' | 'bottom'>(() => {
+    if (!selectedToken || boardSize.h === 0) return 'bottom';
+    const pos = frame.positions[selectedToken.id];
+    if (!pos) return 'bottom';
+    const c = makeTransform(boardSize.w, boardSize.h, play.courtType, rotated).toCanvas(pos);
+    return c.y > boardSize.h / 2 ? 'top' : 'bottom';
+  }, [selectedToken, frame, boardSize, play.courtType, rotated]);
+
+  const placeHint = tool !== 'select' && !isPlaying ? PLACE_HINT[tool] : null;
 
   return (
-    <div className={`app layout-${layout}`}>
-      <Panel
-        id="tools"
-        title="도구"
-        icon="☰"
-        shape={toolsShape}
-        open={ui.tools}
-        onToggle={() => togglePanel('tools')}
-      >
-        <input
-          className="name-input"
-          value={play.name}
-          onChange={(e) =>
-            setPlays((ps) => upsertPlay(ps, { ...play, name: e.target.value, updatedAt: Date.now() }))
-          }
-          placeholder="전술 이름"
-          aria-label="전술 이름"
-        />
-
-        <ToolPanel
-          play={play}
-          rotated={rotated}
-          canUndo={canUndo}
-          busy={busy}
-          screenMode={tool === 'screen'}
-          onToggleScreenMode={toggleScreenMode}
-          onCourtType={onCourtType}
-          onToggleRotate={() => setRotateOverride(!rotated)}
-          onUndo={undo}
-          onAddPlayer={addPlayer}
-          onAddCone={addCone}
-          onExportPNG={doExportPNG}
-          onExportVideo={doExportVideo}
-          onExportFile={() => exportPlayFile(play)}
-          onImportFile={onImportFile}
-          onOpenPlaybook={() => setShowPlaybook(true)}
-          onOpenSettings={() => setShowSettings(true)}
-          onHideChrome={hideChrome}
-        />
-      </Panel>
-
+    <div className={`app ${ui.compact ? 'compact' : ''}`}>
       <main className="stage">
         <Board
           play={play}
@@ -728,83 +609,122 @@ export default function App() {
           onDragHandle={onDragHandle}
           onDragEnd={onDragEnd}
           onEmptyTap={() => setSelectedId(null)}
+          onPlaceToken={onPlaceToken}
           onPlaceScreen={onPlaceScreen}
           onMoveScreen={onMoveScreen}
           onAimScreen={onAimScreen}
           onDeleteScreen={onDeleteScreen}
           onTrashScreen={onTrashScreen}
         />
-
-        {selectedToken && !isPlaying && (
-          <Inspector
-            token={selectedToken}
-            stepIndex={safeIndex}
-            moved={selectedMoved}
-            moveStyle={effectiveMoveStyle(steps, safeIndex, selectedToken.id)}
-            hasWaypoint={!!step?.paths[selectedToken.id]?.length}
-            isBallHolder={step?.ballHolder === selectedToken.id}
-            onRelabel={(label) =>
-              commit({
-                ...play,
-                tokens: play.tokens.map((t) => (t.id === selectedToken.id ? { ...t, label } : t)),
-              })
-            }
-            onGiveBall={giveBall}
-            onDropBall={dropBall}
-            onMoveStyle={(s: MoveStyle) =>
-              commit(setMoveStyleAt(play, lineId, safeIndex, selectedToken.id, s))
-            }
-            onClearWaypoint={() =>
-              commit(setWaypointAt(play, lineId, safeIndex, selectedToken.id, null))
-            }
-            onRemove={removeSelected}
-            onClose={() => setSelectedId(null)}
-          />
-        )}
       </main>
 
-      <Panel
-        id="scenes"
-        title="장면"
-        icon="▤"
-        shape={scenesShape}
-        open={ui.scenes}
-        onToggle={() => togglePanel('scenes')}
-      >
-        <LineBar
-          play={play}
-          currentLineId={lineId}
-          stepIndex={safeIndex}
-          focusLineId={focusLineId}
-          onSelect={onSelectLine}
-          onAddBranch={onAddBranch}
-          onRename={(id, name) => {
-            commit(renameLine(play, id, name));
-            setFocusLineId(null);
-          }}
-          onRemove={onRemoveLine}
-        />
+      {!menuOpen && (
+        <button
+          className={`corner-btn ${isPlaying || tool !== 'select' ? 'active' : ''}`}
+          onClick={onCorner}
+          title={isPlaying ? '멈춤' : tool !== 'select' ? '놓기 끝내기' : '메뉴'}
+          aria-label={isPlaying ? '멈춤' : tool !== 'select' ? '놓기 끝내기' : '메뉴'}
+        >
+          {isPlaying ? '■' : tool !== 'select' ? '✕' : '☰'}
+          {tool === 'select' && !isPlaying && steps.length > 1 && (
+            <span className="corner-step">
+              {safeIndex + 1}/{steps.length}
+            </span>
+          )}
+        </button>
+      )}
 
-        <StepBar
-          steps={steps}
-          stepIndex={safeIndex}
-          sharedCount={shared}
-          isPlaying={isPlaying}
-          progress={progress}
-          onSelectStep={(i) => {
-            setIsPlaying(false);
-            setStepIndex(i);
-          }}
-          onAddStep={onAddStep}
-          onDuplicateStep={onDuplicateStep}
-          onRemoveStep={onRemoveStep}
-          onTogglePlay={togglePlay}
-          onNote={(note) =>
-            setPlays((ps) => upsertPlay(ps, updateStepAt(play, lineId, safeIndex, { note })))
+      {placeHint && !menuOpen && <div className="place-hint">{placeHint}</div>}
+
+      {isPlaying && (
+        <div className="play-progress">
+          <div className="play-progress-fill" style={{ width: `${Math.round(progress * 100)}%` }} />
+        </div>
+      )}
+
+      {selectedToken && selectedToken.kind !== 'ball' && !isPlaying && tool === 'select' && !menuOpen && (
+        <Inspector
+          token={selectedToken}
+          canStyle={selectedToken.kind === 'player' && safeIndex > 0 && selectedMoved}
+          moveStyle={effectiveMoveStyle(steps, safeIndex, selectedToken.id)}
+          compact={ui.compact}
+          dock={inspectorDock}
+          onMoveStyle={(s: MoveStyle) =>
+            commit(setMoveStyleAt(play, lineId, safeIndex, selectedToken.id, s))
           }
-          onDuration={(duration) => commit(updateStepAt(play, lineId, safeIndex, { duration }))}
+          onRemove={removeSelected}
         />
-      </Panel>
+      )}
+
+      {menuOpen && (
+        <MenuScreen
+          name={play.name}
+          courtType={play.courtType}
+          rotated={rotated}
+          canUndo={canUndo}
+          busy={busy}
+          onName={(name) =>
+            setPlays((ps) => upsertPlay(ps, { ...play, name, updatedAt: Date.now() }))
+          }
+          onPlace={startPlacing}
+          onCourtType={onCourtType}
+          onToggleRotate={() => setRotateOverride(!rotated)}
+          onUndo={undo}
+          onFullscreen={toggleFullscreen}
+          onExportPNG={doExportPNG}
+          onExportVideo={doExportVideo}
+          onExportFile={() => exportPlayFile(play)}
+          onImportFile={onImportFile}
+          onOpenPlaybook={() => setShowPlaybook(true)}
+          onOpenSettings={() => {
+            // 설정은 코트를 보면서 골라야 하니 메뉴는 잠깐 접는다
+            setMenuOpen(false);
+            setShowSettings(true);
+          }}
+          onClose={() => setMenuOpen(false)}
+          scenes={
+            <>
+              <LineBar
+                play={play}
+                currentLineId={lineId}
+                stepIndex={safeIndex}
+                focusLineId={focusLineId}
+                onSelect={onSelectLine}
+                onAddBranch={onAddBranch}
+                onRename={(id, name) => {
+                  commit(renameLine(play, id, name));
+                  setFocusLineId(null);
+                }}
+                onRemove={onRemoveLine}
+              />
+
+              <StepBar
+                steps={steps}
+                stepIndex={safeIndex}
+                sharedCount={shared}
+                isPlaying={isPlaying}
+                progress={progress}
+                onSelectStep={(i) => {
+                  setIsPlaying(false);
+                  setStepIndex(i);
+                }}
+                onAddStep={onAddStep}
+                onDuplicateStep={onDuplicateStep}
+                onRemoveStep={onRemoveStep}
+                onTogglePlay={() => {
+                  // 재생은 코트에서 봐야 하니 메뉴를 닫고 시작한다
+                  if (!isPlaying) setMenuOpen(false);
+                  togglePlay();
+                }}
+                onNote={(note) =>
+                  setPlays((ps) => upsertPlay(ps, updateStepAt(play, lineId, safeIndex, { note })))
+                }
+                onDuration={(duration) => commit(updateStepAt(play, lineId, safeIndex, { duration }))}
+              />
+            </>
+          }
+        />
+      )}
 
       {showPlaybook && (
         <PlaybookPanel
@@ -824,9 +744,14 @@ export default function App() {
         <SettingsPanel
           themeId={ui.themeId}
           tokenScale={ui.tokenScale}
+          compact={ui.compact}
           onTheme={(themeId) => setUi((u) => ({ ...u, themeId }))}
           onTokenScale={(tokenScale) => setUi((u) => ({ ...u, tokenScale }))}
-          onClose={() => setShowSettings(false)}
+          onCompact={(compact) => setUi((u) => ({ ...u, compact }))}
+          onClose={() => {
+            setShowSettings(false);
+            setMenuOpen(true);
+          }}
         />
       )}
 

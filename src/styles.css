@@ -2,7 +2,7 @@
  * 색과 간격은 전부 여기서 정한다.
  *
  * 원칙 하나: 선을 긋지 말고 여백으로 나눈다.
- * 테두리는 코트 위에 떠 있는 판의 바깥쪽에만 하나씩 쓴다.
+ * 테두리는 코트 위에 잠깐 뜨는 것(구석 버튼, 말 편집 막대)에만 쓴다.
  * 색은 코트 위(공격·수비·콘·스크린)에만 있고, 조작부는 무채색이다.
  */
 :root {
@@ -50,55 +50,21 @@ body {
   overscroll-behavior: none;
 }
 
-/* ---------- 바탕: 코트 + 가장자리 레일 ---------- */
+/* ---------- 바탕: 코트 ---------- */
 /*
- * 코트와 레일은 같은 그리드를 나눠 쓴다. 그래서 둘이 겹칠 수가 없다.
- * 창이 가로로 길면 레일이 좌우에, 세로로 길면 위아래에 선다 (App이 정한다).
+ * 코트가 화면 전체다. 조작부는 구석의 버튼 하나뿐이고,
+ * 나머지는 전부 메뉴 화면에 들어 있다.
  */
 .app {
+  position: relative;
   height: 100dvh;
-  display: grid;
   overflow: hidden;
   background: var(--bg);
 }
 
-/* 좌우 세로 레일 — 가로로 긴 창 */
-.app.layout-side {
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  grid-template-rows: minmax(0, 1fr);
-}
-
-/* 위아래 가로 레일 — 세로로 긴 창 (폰) */
-.app.layout-stack {
-  grid-template-rows: auto minmax(0, 1fr) auto;
-  grid-template-columns: minmax(0, 1fr);
-}
-
-/* 왼쪽 세로 + 아래 가로 — 4:3처럼 어중간한 창 */
-.app.layout-mixed {
-  grid-template-columns: auto minmax(0, 1fr);
-  grid-template-rows: minmax(0, 1fr) auto;
-}
-
-.layout-mixed > .rail-tools {
-  grid-column: 1;
-  grid-row: 1;
-}
-
-.layout-mixed > .stage {
-  grid-column: 2;
-  grid-row: 1;
-}
-
-.layout-mixed > .rail-scenes {
-  grid-column: 1 / -1;
-  grid-row: 2;
-}
-
 .stage {
-  position: relative;
-  min-width: 0;
-  min-height: 0;
+  position: absolute;
+  inset: 0;
 }
 
 .board {
@@ -122,117 +88,90 @@ body {
   cursor: ns-resize;
 }
 
-/* ---------- 가장자리 레일 ---------- */
-.rail {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  min-height: 0;
-  margin: 10px;
-  background: #1a1f25;
-  border-radius: 12px;
-}
-
-/* 내용 높이만큼만 차지한다 — 빈 칸을 패널 색으로 채우지 않도록 */
-.rail.shape-vert {
-  width: 228px;
-  align-self: start;
-  max-height: calc(100% - 20px);
-}
-
-/* 접으면 얇은 띠만 남는다 */
-.rail-shut {
+/* ---------- 구석의 버튼 ---------- */
+.corner-btn {
+  position: absolute;
+  z-index: 30;
+  top: max(10px, env(safe-area-inset-top));
+  left: max(10px, env(safe-area-inset-left));
+  min-width: 40px;
+  height: 40px;
+  padding: 0 11px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
   appearance: none;
-  border: 0;
-  cursor: pointer;
-  background: #1a1f25;
-  color: var(--faint);
-  font-size: 15px;
-  display: grid;
-  place-items: center;
-  transition: color 0.14s, background 0.14s;
-}
-
-.rail-shut:hover,
-.rail-shut:focus-visible {
+  border: 1px solid var(--edge);
+  border-radius: 12px;
+  background: var(--panel);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
   color: var(--text);
-  background: #242a32;
+  font-size: 17px;
+  line-height: 1;
+  cursor: pointer;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3);
 }
 
-.rail-shut.shape-vert,
-.rail-shut.shape-horz {
-  width: 34px;
+.corner-btn:hover {
+  background: rgba(36, 42, 49, 0.94);
+}
+
+.corner-btn.active {
+  background: var(--fill-on);
+}
+
+.corner-step {
+  font-size: 12px;
+  font-weight: 550;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.app.compact .corner-btn {
+  min-width: 34px;
   height: 34px;
-  align-self: start;
-  justify-self: start;
+  padding: 0 9px;
+  font-size: 15px;
+  opacity: 0.88;
 }
 
-.rail-head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 9px 8px 4px 13px;
+/* 말을 놓을 때만 잠깐 뜨는 한 줄 안내 */
+.place-hint {
+  position: absolute;
+  z-index: 30;
+  top: max(14px, calc(env(safe-area-inset-top) + 4px));
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: calc(100% - 140px);
+  padding: 8px 14px;
+  border-radius: 999px;
+  background: var(--panel);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+  border: 1px solid var(--edge);
+  color: var(--muted);
+  font-size: 12.5px;
+  text-align: center;
+  pointer-events: none;
 }
 
-.rail-title {
-  flex: 1;
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  color: var(--faint);
+/* 재생 중 맨 아래의 가는 진행선 */
+.play-progress {
+  position: absolute;
+  z-index: 30;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 3px;
+  background: rgba(128, 128, 128, 0.18);
+  pointer-events: none;
 }
 
-.rail-body {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  padding: 4px 12px 12px;
-  overflow: hidden auto;
-  overscroll-behavior: contain;
-}
-
-/* 위아래 레일일 때 도구는 한 줄로 늘어선다 */
-.rail-tools.shape-horz .rail-body {
-  flex-direction: row;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 10px;
-}
-
-.rail-tools.shape-horz .name-input {
-  width: 170px;
-}
-
-.rail-tools.shape-horz .tool-sep {
-  width: 1px;
-  height: 26px;
-  align-self: center;
-  margin: 0 2px;
-}
-
-/* 좌우 레일일 때 장면은 좁은 폭에 맞춰 접힌다 */
-.rail-scenes.shape-vert .linebar,
-.rail-scenes.shape-vert .lines,
-.rail-scenes.shape-vert .stepbar-track,
-.rail-scenes.shape-vert .steps {
-  flex-wrap: wrap;
-  overflow: visible;
-}
-
-.rail-scenes.shape-vert .steps {
-  flex: 1 1 100%;
-}
-
-.rail-scenes.shape-vert .note-row {
-  flex-direction: column;
-  align-items: stretch;
-  gap: 9px;
-}
-
-.rail-scenes.shape-vert .speed {
-  flex-direction: row;
-  align-items: center;
-  justify-content: space-between;
+.play-progress-fill {
+  height: 100%;
+  background: var(--accent);
 }
 
 /* ---------- 버튼 ---------- */
@@ -440,24 +379,113 @@ body {
   background: var(--fill);
 }
 
-/* ---------- 도구판 ---------- */
-.tool-group {
-  display: flex;
-  flex-direction: column;
-  gap: 7px;
+/* ---------- 메뉴 화면 ---------- */
+.menu-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  background: #12161a;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right))
+    max(28px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
 }
 
-.tool-row {
+.menu-inner {
+  max-width: 560px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 26px;
+}
+
+.menu-top {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 12px;
+}
+
+.menu-top .name-input {
+  flex: 1;
+  font-size: 18px;
+  margin: 0;
+  padding: 7px 9px;
+}
+
+.menu-top .btn {
+  padding: 9px 16px;
+  font-size: 14px;
+}
+
+.menu-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+.menu-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   flex-wrap: wrap;
 }
 
-.tool-sep {
-  height: 1px;
-  background: var(--edge);
-  margin: 1px 0;
+.place-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+}
+
+.place-tile {
+  appearance: none;
+  border: 0;
+  background: var(--fill);
+  color: var(--text);
+  border-radius: 12px;
+  padding: 18px 4px 15px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 11px;
+  font-size: 13.5px;
+  font-weight: 550;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+
+.place-tile:hover,
+.place-tile:active {
+  background: var(--fill-on);
+}
+
+.place-tile .dot {
+  width: 15px;
+  height: 15px;
+}
+
+.place-tile .dot-screen {
+  width: 22px;
+  height: 5px;
+  margin: 5px 0;
+}
+
+/* 메뉴에서는 장면 띠가 줄을 바꿔 넉넉하게 펼쳐진다 */
+.menu-screen .linebar,
+.menu-screen .lines,
+.menu-screen .stepbar-track,
+.menu-screen .steps {
+  flex-wrap: wrap;
+  overflow: visible;
+}
+
+.menu-screen .steps {
+  flex: 1 1 100%;
+  order: 3;
+}
+
+.menu-screen .stepbar-actions {
+  margin-left: auto;
 }
 
 /* ---------- 내보내기 메뉴 ---------- */
@@ -494,75 +522,84 @@ body {
 }
 
 /* ---------- 선택한 말 ---------- */
+/* 이동 / 드리블 / 삭제 — 말을 가리지 않도록 먼 쪽 가장자리에 붙는다 */
 .inspector {
   position: absolute;
-  right: 12px;
-  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
   z-index: 32;
-  width: 232px;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  padding: 4px;
   background: var(--panel);
+  -webkit-backdrop-filter: blur(16px) saturate(130%);
   backdrop-filter: blur(16px) saturate(130%);
   border: 1px solid var(--edge);
-  border-radius: var(--r-panel);
-  padding: 11px;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.45);
+  border-radius: 14px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
 }
 
-.inspector-head {
-  display: flex;
-  align-items: center;
-  gap: 7px;
+.inspector.dock-bottom {
+  bottom: max(14px, env(safe-area-inset-bottom));
 }
 
-.inspector-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
+.inspector.dock-top {
+  top: max(10px, env(safe-area-inset-top));
 }
 
-.inspector-row.column {
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 7px;
-}
-
-.badge {
-  font-size: 11px;
-  font-weight: 600;
-  padding: 3px 9px;
-  border-radius: 999px;
-  background: var(--fill);
-  color: var(--muted);
-}
-
-.badge-offense {
-  color: #9cc4f5;
-}
-
-.badge-defense {
-  color: #f2a79f;
-}
-
-.label-input {
-  width: 40px;
-  text-align: center;
-  background: var(--fill);
+.insp-btn {
+  appearance: none;
   border: 0;
-  border-radius: 7px;
-  color: var(--text);
-  font-size: 13px;
-  font-weight: 650;
-  padding: 5px;
-  font-family: inherit;
+  background: transparent;
+  color: var(--muted);
+  border-radius: 10px;
+  padding: 9px 15px;
+  font-size: 14px;
+  font-weight: 550;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
 }
 
-.label-input:focus {
-  outline: none;
+.insp-btn:hover {
+  background: var(--fill);
+  color: var(--text);
+}
+
+.insp-btn.on {
   background: var(--fill-on);
+  color: var(--text);
+}
+
+.insp-btn.danger {
+  color: var(--danger);
+}
+
+.insp-btn.danger:hover {
+  background: rgba(226, 87, 76, 0.14);
+  color: var(--danger);
+}
+
+.insp-sep {
+  width: 1px;
+  height: 18px;
+  background: var(--edge);
+  margin: 0 2px;
+}
+
+/* 간략 — 아이콘만, 더 작게 */
+.inspector.compact {
+  padding: 2px;
+  gap: 1px;
+  border-radius: 11px;
+}
+
+.inspector.compact .insp-btn {
+  min-width: 32px;
+  padding: 7px 8px;
+  font-size: 15px;
 }
 
 /* ---------- 장면판 ---------- */
@@ -1030,24 +1067,13 @@ body {
 
 /* ---------- 좁은 화면 ---------- */
 @media (max-width: 720px) {
-  .rail.shape-vert {
-    width: 208px;
-  }
-
-  .inspector {
-    left: 8px;
-    right: 8px;
-    top: 8px;
-    width: auto;
-  }
-
   .note-row {
     flex-direction: column;
     align-items: stretch;
     gap: 8px;
   }
 
-  .shape-horz .speed {
+  .speed {
     flex-direction: row;
     align-items: center;
     justify-content: space-between;
@@ -1056,14 +1082,5 @@ body {
   .step-chip,
   .btn-play {
     height: 38px;
-  }
-
-  .rail-scenes.shape-horz {
-    padding-bottom: env(safe-area-inset-bottom);
-  }
-
-  /* 레일이 화면을 다 먹지 않게 */
-  .shape-horz .rail-body {
-    max-height: 38dvh;
   }
 }

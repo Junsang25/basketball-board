@@ -6,7 +6,9 @@ import type { Play } from '../lib/types';
 import { drawScene, hitTest, hitTestScreen } from '../lib/render';
 import type { BoardLook } from '../lib/look';
 
-export type BoardTool = 'select' | 'screen';
+/** 메뉴에서 고른 도구. 'select' 말고는 코트를 눌러 그 자리에 놓는다 */
+export type BoardTool = 'select' | 'screen' | 'offense' | 'defense' | 'cone';
+export type PlaceKind = 'offense' | 'defense' | 'cone';
 
 /** 이만큼 위아래로 움직이면 반 바퀴 돈다 (막대는 반 바퀴면 모든 방향이 나온다) */
 const AIM_SPAN_PX = 130;
@@ -31,6 +33,8 @@ export interface BoardProps {
   onDragHandle(pos: Vec): void;
   onDragEnd(): void;
   onEmptyTap(pos: Vec): void;
+  /** 코트를 눌러 말을 놓는다 */
+  onPlaceToken(kind: PlaceKind, pos: Vec): void;
   /** 새 막대를 놓고 그 id를 돌려준다 */
   onPlaceScreen(pos: Vec): string;
   onMoveScreen(id: string, pos: Vec): void;
@@ -62,7 +66,7 @@ export function Board(props: BoardProps) {
   const {
     play, look, frame, rotated, tool, selectedId, handlePos, interactive, showGhosts,
     onSize, onSelect, onDragToken, onDragHandle, onDragEnd, onEmptyTap,
-    onPlaceScreen, onMoveScreen, onAimScreen, onDeleteScreen, onTrashScreen,
+    onPlaceToken, onPlaceScreen, onMoveScreen, onAimScreen, onDeleteScreen, onTrashScreen,
   } = props;
 
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -175,6 +179,11 @@ export function Board(props: BoardProps) {
       const local = toLocal(e);
       movedRef.current = false;
 
+      if (tool === 'offense' || tool === 'defense' || tool === 'cone') {
+        onPlaceToken(tool, tf.toCourt(local));
+        return;
+      }
+
       if (tool === 'screen') {
         // 각도를 맞추는 중이면 이 클릭은 확정이다
         if (aim) {
@@ -244,7 +253,7 @@ export function Board(props: BoardProps) {
     },
     [
       interactive, tool, toLocal, selectedId, handlePos, tf, play, frame, aim,
-      look.tokenScale, onSelect, onEmptyTap, onPlaceScreen, onDragEnd,
+      look.tokenScale, onSelect, onEmptyTap, onPlaceToken, onPlaceScreen, onDragEnd,
     ],
   );
 
@@ -375,7 +384,7 @@ export function Board(props: BoardProps) {
 
   const cls = [
     'board-canvas',
-    interactive && tool === 'screen' ? 'placing' : '',
+    interactive && tool !== 'select' ? 'placing' : '',
     aim ? 'aiming' : '',
   ].filter(Boolean).join(' ');
 

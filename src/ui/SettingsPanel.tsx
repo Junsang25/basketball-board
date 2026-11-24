@@ -4,8 +4,10 @@ import type { BoardTheme } from '../lib/look';
 export interface SettingsPanelProps {
   themeId: string;
   tokenScale: number;
+  compact: boolean;
   onTheme(id: string): void;
   onTokenScale(scale: number): void;
+  onCompact(compact: boolean): void;
   onClose(): void;
 }
 
@@ -34,7 +36,7 @@ function Swatch({ theme }: { theme: BoardTheme }) {
 }
 
 export function SettingsPanel(props: SettingsPanelProps) {
-  const { themeId, tokenScale, onTheme, onTokenScale, onClose } = props;
+  const { themeId, tokenScale, compact, onTheme, onTokenScale, onCompact, onClose } = props;
 
   return (
     <div className="sheet-backdrop quiet" onClick={onClose}>
@@ -80,6 +82,19 @@ export function SettingsPanel(props: SettingsPanelProps) {
           <p className="hint-sm">
             코트 대비 말의 비율이에요. 선수가 많으면 작게, 멀리서 보여줄 땐 크게.
           </p>
+        </div>
+
+        <div className="set-group">
+          <span className="label">말 편집 창</span>
+          <div className="seg">
+            <button className={`seg-btn ${!compact ? 'on' : ''}`} onClick={() => onCompact(false)}>
+              보통
+            </button>
+            <button className={`seg-btn ${compact ? 'on' : ''}`} onClick={() => onCompact(true)}>
+              간략
+            </button>
+          </div>
+          <p className="hint-sm">간략은 글자 없이 아이콘만 남겨서 폰 화면을 덜 가려요.</p>
         </div>
 
         <div className="spacer" />

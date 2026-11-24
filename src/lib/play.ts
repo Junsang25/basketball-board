@@ -59,15 +59,14 @@ export function createPlay(name = '새 전술', courtType: CourtType = 'half'): 
   tokens.push({ id: BALL_ID, kind: 'ball', label: '' });
   positions[BALL_ID] = { x: 0, y: 34 };
 
-  const firstPlayer = tokens.find((t) => t.team === 'offense')!;
-
   const step: Step = {
     id: uid('s'),
     positions,
     paths: {},
     moveStyles: {},
     screens: [],
-    ballHolder: firstPlayer.id,
+    // 공도 그냥 하나의 말이다 — 누구 것도 아니다
+    ballHolder: null,
     note: '',
     duration: 1400,
   };

@@ -2,44 +2,33 @@ import { DEFAULT_THEME_ID, DEFAULT_TOKEN_SCALE, clampTokenScale, themeById } fro
 import type { BoardLook } from './look';
 
 export interface UiState {
-  /** 도구 레일을 펼쳐 뒀는가 */
-  tools: boolean;
-  /** 장면 레일을 펼쳐 뒀는가 */
-  scenes: boolean;
   /** 코트 디자인 */
   themeId: string;
   /** 말 크기 배율 */
   tokenScale: number;
+  /** 간략 모드 — 말을 눌렀을 때 뜨는 창을 아이콘만으로 줄인다 */
+  compact: boolean;
 }
 
 const KEY = 'hoopboard.ui.v1';
 
 export const DEFAULT_UI: UiState = {
-  tools: true,
-  scenes: true,
   themeId: DEFAULT_THEME_ID,
   tokenScale: DEFAULT_TOKEN_SCALE,
+  compact: false,
 };
 
-/** 예전 판 위치까지 들어 있던 모양도 읽어준다 ({ tools: { open, pos } }) */
-function readOpen(raw: unknown): boolean {
-  if (typeof raw === 'boolean') return raw;
-  if (raw && typeof raw === 'object') return (raw as { open?: unknown }).open !== false;
-  return true;
-}
-
-/** 레일을 펼쳐 뒀는지 — 전술 데이터와는 따로 저장한다 */
+/** 이 기기의 보기 설정 — 전술 데이터와는 따로 저장한다 (예전에 저장된 레일 상태는 읽지 않는다) */
 export function loadUi(): UiState {
   try {
     const raw = localStorage.getItem(KEY);
     if (!raw) return DEFAULT_UI;
     const data = JSON.parse(raw) as Record<string, unknown>;
     return {
-      tools: readOpen(data.tools),
-      scenes: readOpen(data.scenes),
       themeId: typeof data.themeId === 'string' ? data.themeId : DEFAULT_THEME_ID,
       tokenScale:
         typeof data.tokenScale === 'number' ? clampTokenScale(data.tokenScale) : DEFAULT_TOKEN_SCALE,
+      compact: data.compact === true,
     };
   } catch {
     return DEFAULT_UI;
